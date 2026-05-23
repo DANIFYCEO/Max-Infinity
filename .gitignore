@@ -14,7 +14,7 @@ venv/
 env/
 
 # Baileys auth (contains your WhatsApp session)
-baileys/auth_info/
+# baileys/auth_info/
 baileys/node_modules/
 
 # OS
