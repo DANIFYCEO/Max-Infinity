@@ -1,0 +1,22 @@
+# Environment
+.env
+
+# Database
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Baileys auth (contains your WhatsApp session)
+baileys/auth_info/
+baileys/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

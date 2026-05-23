@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAX Admin</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --black:#000;
+  --white:#fff;
+  --g900:#0d0d0d;
+  --g800:#141414;
+  --g700:#1c1c1c;
+  --g600:#2a2a2a;
+  --g500:#3a3a3a;
+  --g400:#555;
+  --g300:#888;
+  --g200:#bbb;
+  --g100:#e5e5e5;
+}
+html{font-size:14px}
+body{
+  background:var(--g900);
+  color:var(--white);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* NAV */
+nav{
+  height:52px;
+  border-bottom:1px solid var(--g600);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 28px;
+  position:sticky;top:0;z-index:100;
+  background:var(--g900);
+}
+.nav-left{display:flex;align-items:center;gap:20px}
+.wordmark{font-size:15px;font-weight:600;letter-spacing:-0.3px;color:var(--white)}
+.wordmark sup{font-size:9px;font-weight:400;color:var(--g300);letter-spacing:0}
+.nav-tag{
+  font-size:10px;
+  font-weight:500;
+  letter-spacing:1.2px;
+  text-transform:uppercase;
+  color:var(--g400);
+  border:1px solid var(--g600);
+  padding:3px 8px;
+  border-radius:3px;
+}
+.nav-right{display:flex;align-items:center;gap:16px}
+.live-badge{
+  display:flex;align-items:center;gap:6px;
+  font-size:11px;
+  font-weight:500;
+  letter-spacing:.5px;
+  color:var(--g200);
+}
+.live-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--white);
+  animation:blink 2s ease-in-out infinite;
+}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.btn-refresh{
+  background:none;
+  border:1px solid var(--g600);
+  color:var(--g200);
+  font-size:12px;
+  padding:6px 14px;
+  border-radius:4px;
+  cursor:pointer;
+  font-family:inherit;
+  transition:border-color .15s,color .15s;
+}
+.btn-refresh:hover{border-color:var(--g300);color:var(--white)}
+
+/* MAIN */
+main{max-width:1160px;margin:0 auto;padding:32px 28px}
+
+/* SECTION TITLE */
+.section-label{
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:1.5px;
+  text-transform:uppercase;
+  color:var(--g400);
+  margin-bottom:14px;
+}
+
+/* STAT GRID */
+.stat-grid{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:1px;
+  background:var(--g600);
+  border:1px solid var(--g600);
+  border-radius:8px;
+  overflow:hidden;
+  margin-bottom:28px;
+}
+.stat{
+  background:var(--g800);
+  padding:20px 22px;
+  display:flex;flex-direction:column;gap:6px;
+}
+.stat-label{
+  font-size:11px;
+  font-weight:500;
+  letter-spacing:.5px;
+  color:var(--g300);
+}
+.stat-val{
+  font-size:28px;
+  font-weight:700;
+  letter-spacing:-1px;
+  color:var(--white);
+  font-variant-numeric:tabular-nums;
+}
+.stat-sub{font-size:11px;color:var(--g400)}
+
+/* TWO COL */
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+
+/* PANEL */
+.panel{
+  background:var(--g800);
+  border:1px solid var(--g600);
+  border-radius:8px;
+  overflow:hidden;
+}
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 20px;
+  border-bottom:1px solid var(--g600);
+}
+.panel-title{
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:.3px;
+  color:var(--white);
+}
+.panel-meta{
+  font-size:11px;
+  color:var(--g400);
+  font-variant-numeric:tabular-nums;
+}
+.panel-body{padding:20px}
+
+/* CHART */
+#chart-canvas{display:block;width:100%;height:140px}
+
+/* TABLE */
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{
+  text-align:left;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:1px;
+  text-transform:uppercase;
+  color:var(--g400);
+  padding:10px 20px;
+  border-bottom:1px solid var(--g700);
+}
+.tbl td{
+  padding:11px 20px;
+  font-size:12px;
+  color:var(--g200);
+  border-bottom:1px solid var(--g700);
+  font-variant-numeric:tabular-nums;
+}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tbody tr:hover td{background:var(--g700);color:var(--white)}
+.tbl .num{color:var(--white);font-weight:600}
+.tbl .dim{color:var(--g400)}
+
+/* BADGES */
+.badge{
+  display:inline-block;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.5px;
+  text-transform:uppercase;
+  padding:2px 7px;
+  border-radius:3px;
+}
+.badge-pro{background:var(--white);color:var(--black)}
+.badge-free{background:var(--g700);color:var(--g300)}
+
+/* BROADCAST */
+.broadcast-wrap{display:flex;flex-direction:column;gap:10px}
+textarea{
+  background:var(--g700);
+  border:1px solid var(--g600);
+  border-radius:6px;
+  color:var(--white);
+  font-size:13px;
+  font-family:inherit;
+  padding:12px 14px;
+  resize:vertical;
+  min-height:110px;
+  outline:none;
+  width:100%;
+  transition:border-color .15s;
+}
+textarea::placeholder{color:var(--g400)}
+textarea:focus{border-color:var(--g300)}
+.btn-broadcast{
+  width:100%;
+  background:var(--white);
+  color:var(--black);
+  border:none;
+  border-radius:6px;
+  padding:11px;
+  font-size:13px;
+  font-weight:600;
+  font-family:inherit;
+  cursor:pointer;
+  letter-spacing:.2px;
+  transition:background .15s;
+}
+.btn-broadcast:hover{background:var(--g100)}
+.btn-broadcast:disabled{background:var(--g600);color:var(--g400);cursor:not-allowed}
+.bc-msg{
+  font-size:12px;
+  padding:9px 12px;
+  border-radius:5px;
+  display:none;
+}
+.bc-ok{background:var(--g700);color:var(--g100);border:1px solid var(--g600);display:block}
+.bc-err{background:#1a0000;color:#ff6666;border:1px solid #3a0000;display:block}
+
+/* LOADING */
+.spinner-row{
+  display:flex;align-items:center;gap:10px;
+  padding:24px 20px;
+  color:var(--g400);
+  font-size:12px;
+}
+.spin{
+  width:14px;height:14px;
+  border:1.5px solid var(--g600);
+  border-top-color:var(--g200);
+  border-radius:50%;
+  animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* EMPTY */
+.empty{padding:28px 20px;text-align:center;color:var(--g400);font-size:12px}
+
+/* FOOTER */
+footer{
+  text-align:center;
+  padding:28px;
+  font-size:11px;
+  color:var(--g500);
+  border-top:1px solid var(--g700);
+  margin-top:32px;
+  letter-spacing:.3px;
+}
+
+@media(max-width:900px){
+  .stat-grid{grid-template-columns:repeat(3,1fr)}
+  .row{grid-template-columns:1fr}
+}
+@media(max-width:600px){
+  .stat-grid{grid-template-columns:1fr 1fr}
+  main{padding:20px 16px}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-left">
+    <div class="wordmark">MAX<sup>&#8734;</sup></div>
+    <div class="nav-tag">Admin</div>
+  </div>
+  <div class="nav-right">
+    <div class="live-badge"><div class="live-dot"></div>System Online</div>
+    <button class="btn-refresh" onclick="loadAll()">Refresh</button>
+  </div>
+</nav>
+
+<main>
+
+  <!-- STATS -->
+  <div class="section-label">Overview</div>
+  <div class="stat-grid" id="stat-grid">
+    <div class="stat"><div class="stat-label">Total Users</div><div class="stat-val" id="s-users">...</div></div>
+    <div class="stat"><div class="stat-label">Active Today</div><div class="stat-val" id="s-active">...</div></div>
+    <div class="stat"><div class="stat-label">Total Messages</div><div class="stat-val" id="s-msgs">...</div></div>
+    <div class="stat"><div class="stat-label">Total Leads</div><div class="stat-val" id="s-leads">...</div></div>
+    <div class="stat"><div class="stat-label">Paid Users</div><div class="stat-val" id="s-paid">...</div></div>
+  </div>
+
+  <!-- CHART + BROADCAST -->
+  <div class="row">
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Message Volume</div>
+        <div class="panel-meta">14 days</div>
+      </div>
+      <div class="panel-body" style="padding:16px 16px 8px">
+        <canvas id="chart-canvas"></canvas>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Broadcast</div>
+        <div class="panel-meta" id="bc-user-count">0 users</div>
+      </div>
+      <div class="panel-body">
+        <div class="broadcast-wrap">
+          <textarea id="bc-text" placeholder="Write a message to send to all users..."></textarea>
+          <button class="btn-broadcast" id="bc-btn" onclick="sendBroadcast()">Send to All Users</button>
+          <div class="bc-msg" id="bc-result"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LEADS + USERS -->
+  <div class="row">
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Recent Leads</div>
+        <div class="panel-meta" id="leads-count">0</div>
+      </div>
+      <div id="leads-body">
+        <div class="spinner-row"><div class="spin"></div>Loading...</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Users</div>
+        <div class="panel-meta" id="users-count">0</div>
+      </div>
+      <div id="users-body">
+        <div class="spinner-row"><div class="spin"></div>Loading...</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer>FABER AI Studio &mdash; MAX&#8734; Admin Panel</footer>
+
+<script>
+const params = new URLSearchParams(location.search)
+const KEY    = params.get('key') || 'faber2024'
+const api    = p => `${p}?key=${KEY}`
+
+async function loadStats() {
+  try {
+    const d = await (await fetch(api('/admin/stats'))).json()
+    document.getElementById('s-users').textContent  = fmt(d.total_users)
+    document.getElementById('s-active').textContent = fmt(d.active_today)
+    document.getElementById('s-msgs').textContent   = fmt(d.total_msgs)
+    document.getElementById('s-leads').textContent  = fmt(d.total_leads)
+    document.getElementById('s-paid').textContent   = fmt(d.paid_users)
+    document.getElementById('bc-user-count').textContent = fmt(d.total_users) + ' users'
+  } catch(e) { console.error(e) }
+}
+
+async function loadChart() {
+  try {
+    const data = await (await fetch(api('/admin/chart'))).json()
+    if (!data.length) { return }
+    const canvas = document.getElementById('chart-canvas')
+    const dpr    = window.devicePixelRatio || 1
+    const W      = canvas.parentElement.clientWidth - 32
+    const H      = 140
+    canvas.width  = W * dpr
+    canvas.height = H * dpr
+    canvas.style.width  = W + 'px'
+    canvas.style.height = H + 'px'
+    const ctx = canvas.getContext('2d')
+    ctx.scale(dpr, dpr)
+
+    const items  = [...data].reverse()
+    const max    = Math.max(...items.map(d => d.messages || 0)) || 1
+    const cols   = items.length
+    const padL   = 0, padR = 0, padT = 8, padB = 22
+    const bW     = (W - padL - padR) / cols
+    const bGap   = bW * 0.3
+    const bInner = bW - bGap
+
+    ctx.clearRect(0, 0, W, H)
+
+    items.forEach((d, i) => {
+      const x   = padL + i * bW + bGap / 2
+      const pct = (d.messages || 0) / max
+      const bH  = Math.max(2, pct * (H - padT - padB))
+      const y   = H - padB - bH
+
+      ctx.fillStyle = pct > 0.6 ? '#fff' : pct > 0.3 ? '#888' : '#3a3a3a'
+      ctx.beginPath()
+      ctx.roundRect(x, y, bInner, bH, [2,2,0,0])
+      ctx.fill()
+
+      if (i % 3 === 0 || cols <= 7) {
+        const lbl = (d.date || '').slice(5)
+        ctx.fillStyle = '#555'
+        ctx.font = '9px -apple-system,sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText(lbl, x + bInner / 2, H - 6)
+      }
+    })
+  } catch(e) { console.error(e) }
+}
+
+async function loadLeads() {
+  try {
+    const data = await (await fetch(api('/admin/leads'))).json()
+    document.getElementById('leads-count').textContent = data.length
+    if (!data.length) {
+      document.getElementById('leads-body').innerHTML = '<div class="empty">No leads yet</div>'
+      return
+    }
+    document.getElementById('leads-body').innerHTML = `
+      <table class="tbl">
+        <thead><tr><th>Name / Number</th><th>Message</th><th>Time</th></tr></thead>
+        <tbody>${data.map(l => `<tr>
+          <td class="num">
+            ${l.name ? `<span style="color:#fff">${esc(l.name)}</span><br>` : ''}
+            <a href="https://wa.me/${clean(l.sender)}" target="_blank" style="color:#555;text-decoration:none;font-size:11px;border-bottom:1px solid #2a2a2a">${clean(l.sender)}</a>
+          </td>
+          <td>${esc(l.message).slice(0,35)}${l.message.length>35?'&hellip;':''}</td>
+          <td class="dim">${(l.timestamp||'').slice(0,16)}</td>
+        </tr>`).join('')}</tbody>
+      </table>`
+  } catch(e) { document.getElementById('leads-body').innerHTML = '<div class="empty">Failed to load</div>' }
+}
+
+async function loadUsers() {
+  try {
+    const data = await (await fetch(api('/admin/users'))).json()
+    document.getElementById('users-count').textContent = data.length
+    if (!data.length) {
+      document.getElementById('users-body').innerHTML = '<div class="empty">No users yet</div>'
+      return
+    }
+    document.getElementById('users-body').innerHTML = `
+      <table class="tbl">
+        <thead><tr><th>Name</th><th>Number</th><th>Msgs</th><th>Plan</th><th>Since</th></tr></thead>
+        <tbody>${data.map(u => `<tr>
+          <td>${u.name || '<span class="dim">-</span>'}</td>
+          <td class="dim"><a href="https://wa.me/${clean(u.sender)}" target="_blank" style="color:#888;text-decoration:none;border-bottom:1px solid #3a3a3a">${clean(u.sender)}</a></td>
+          <td class="num">${u.message_count}</td>
+          <td><span class="badge ${u.is_paid?'badge-pro':'badge-free'}">${u.is_paid?'Pro':'Free'}</span></td>
+          <td class="dim">${(u.first_seen||'').slice(0,10)}</td>
+        </tr>`).join('')}</tbody>
+      </table>`
+  } catch(e) { document.getElementById('users-body').innerHTML = '<div class="empty">Failed to load</div>' }
+}
+
+async function sendBroadcast() {
+  const msg = document.getElementById('bc-text').value.trim()
+  const res = document.getElementById('bc-result')
+  const btn = document.getElementById('bc-btn')
+  res.className = 'bc-msg'
+  if (!msg) { res.className = 'bc-msg bc-err'; res.textContent = 'Message is empty.'; return }
+  btn.disabled = true; btn.textContent = 'Sending...'
+  try {
+    const r = await fetch(api('/admin/broadcast'), {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message:msg})
+    })
+    const d = await r.json()
+    res.className = 'bc-msg bc-ok'
+    res.textContent = `Sent to ${d.sent} of ${d.total} users.`
+    document.getElementById('bc-text').value = ''
+  } catch(e) {
+    res.className = 'bc-msg bc-err'
+    res.textContent = 'Failed. Is Flask running?'
+  }
+  btn.disabled = false; btn.textContent = 'Send to All Users'
+}
+
+function fmt(n) { return (n||0).toLocaleString() }
+function clean(s) { return (s||'').replace('@s.whatsapp.net','').replace('@lid','').replace('@c.us','') }
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;') }
+
+function loadAll() { loadStats(); loadChart(); loadLeads(); loadUsers() }
+loadAll()
+setInterval(loadStats, 30000)
+</script>
+</body>
+</html>

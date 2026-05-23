@@ -1,0 +1,7 @@
+flask
+groq
+requests
+PyPDF2
+python-docx
+python-dotenv
+gunicorn
