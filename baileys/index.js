@@ -56,7 +56,7 @@ async function startBot() {
 
     sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false,
+        printQRInTerminal: true,
         getMessage: async () => ({ conversation: '' }),
         mediaUploadTimeoutMs: 120000
     })
