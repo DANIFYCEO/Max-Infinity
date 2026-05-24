@@ -3,7 +3,7 @@ const qrcode = require('qrcode-terminal')
 const axios  = require('axios')
 const http   = require('http')
 
-const FLASK_URL    = 'http://localhost:5000/message'
+const FLASK_URL    = 'https://max-flask.onrender.com/message'
 const BOT_START    = Math.floor(Date.now() / 1000)
 
 let sock = null // global so /send endpoint can use it
@@ -88,16 +88,16 @@ async function startBot() {
         for (const msg of messages) {
             if (msg.key.fromMe) continue
 
-            // Skip status updates and broadcasts
-            if (chatId === 'status@broadcast' || chatId === 'status@s.whatsapp.net') continue
-            if (chatId.endsWith('@broadcast')) continue
-
             // Skip old/history messages
             const msgTime = msg.messageTimestamp
             if (msgTime && msgTime < BOT_START - 10) continue
 
             const chatId = msg.key.remoteJid
             const isGroup = chatId.endsWith('@g.us')
+
+            // Skip status updates and broadcasts
+            if (chatId === 'status@broadcast' || chatId === 'status@s.whatsapp.net') continue
+            if (chatId.endsWith('@broadcast')) continue
 
             // For direct chats, remoteJid IS the real phone number (e.g. 2348163958919@s.whatsapp.net)
             // For group chats, participant is the sender
