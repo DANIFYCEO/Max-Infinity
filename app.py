@@ -220,25 +220,33 @@ def understand_image(image_bytes: bytes, question: str = "What is in this image?
         print(f"[IMG UNDERSTAND ERROR] {e}")
         return "I had trouble analyzing that image. Try sending it again."
 
-# ── IMAGE GENERATION (Gemini Imagen 3) ───────────────────────────────────────
+# ── IMAGE GENERATION (HuggingFace FLUX.1-schnell) ────────────────────────────
 
 def generate_image(prompt: str) -> bytes | None:
     print(f"[IMG GEN] {prompt[:80]}...")
     try:
         r = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={GEMINI_API_KEY}",
-            json={
-                "instances":  [{"prompt": prompt}],
-                "parameters": {"sampleCount": 1, "aspectRatio": "1:1"}
-            },
-            timeout=60
+            "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
+            headers={"Authorization": f"Bearer {os.getenv('HF_TOKEN')}"},
+            json={"inputs": prompt, "parameters": {"width": 1024, "height": 1024, "num_inference_steps": 4}},
+            timeout=90
         )
-        print(f"[IMG GEN] status={r.status_code}")
-        if r.status_code == 200:
-            b64       = r.json()["predictions"][0]["bytesBase64Encoded"]
-            img_bytes = base64.b64decode(b64)
-            print(f"[IMG GEN] ✓ size={len(img_bytes)}")
-            return img_bytes
+        print(f"[IMG GEN] status={r.status_code} size={len(r.content)}")
+        if r.status_code == 200 and len(r.content) > 5000:
+            print(f"[IMG GEN] ✓ ready")
+            return r.content
+        if r.status_code == 503:
+            # Model loading, wait and retry once
+            import time
+            time.sleep(20)
+            r = requests.post(
+                "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
+                headers={"Authorization": f"Bearer {os.getenv('HF_TOKEN')}"},
+                json={"inputs": prompt, "parameters": {"width": 1024, "height": 1024, "num_inference_steps": 4}},
+                timeout=90
+            )
+            if r.status_code == 200 and len(r.content) > 5000:
+                return r.content
         print(f"[IMG GEN ERROR] {r.text[:300]}")
         return None
     except Exception as e:
