@@ -219,29 +219,25 @@ def understand_image(image_bytes: bytes, question: str = "What is in this image?
         print(f"[IMG UNDERSTAND ERROR] {e}")
         return "I had trouble analyzing that image. Try sending it again."
 
-# ── IMAGE GENERATION (Stability AI) ──────────────────────────────────────────
+# ── IMAGE GENERATION (Gemini Imagen 3) ───────────────────────────────────────
 
 def generate_image(prompt: str) -> bytes | None:
     print(f"[IMG GEN] {prompt[:80]}...")
     try:
         r = requests.post(
-            "https://api.stability.ai/v2beta/stable-image/generate/core",
-            headers={
-                "Authorization": f"Bearer {STABILITY_API_KEY}",
-                "Accept": "image/*"
-            },
-            files={"none": ""},
-            data={
-                "prompt":        prompt,
-                "output_format": "jpeg",
-                "aspect_ratio":  "1:1"
+            f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={GEMINI_API_KEY}",
+            json={
+                "instances":  [{"prompt": prompt}],
+                "parameters": {"sampleCount": 1, "aspectRatio": "1:1"}
             },
             timeout=60
         )
         print(f"[IMG GEN] status={r.status_code}")
         if r.status_code == 200:
-            print(f"[IMG GEN] ✓ size={len(r.content)}")
-            return r.content
+            b64       = r.json()["predictions"][0]["bytesBase64Encoded"]
+            img_bytes = base64.b64decode(b64)
+            print(f"[IMG GEN] ✓ size={len(img_bytes)}")
+            return img_bytes
         print(f"[IMG GEN ERROR] {r.text[:300]}")
         return None
     except Exception as e:
