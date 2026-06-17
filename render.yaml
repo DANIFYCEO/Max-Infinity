@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: max-infinity
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 2 --timeout 120 --bind 0.0.0.0:$PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: GROQ_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: STABILITY_API_KEY
+        sync: false
+      - key: PAYSTACK_LINK
+        sync: false
+      - key: JOSEPH_NUMBER
+        sync: false
+      - key: ADMIN_KEY
+        sync: false
+      - key: FREE_DAILY_LIMIT
+        value: "1000"
+      # ── Meta / WhatsApp Cloud API ──────────────────────
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: PHONE_NUMBER_ID
+        sync: false
+      - key: WABA_ID
+        sync: false
+      - key: WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: APP_DOMAIN
+        sync: false

@@ -9,14 +9,16 @@ Company : FABER AI Studio
 
 import os
 import io
+import uuid
 import base64
 import time
 import requests
 import PyPDF2
 import docx
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from groq import Groq
 from dotenv import load_dotenv
+from keep_alive import start_keep_alive
 
 from database import (
     init_db, tick_message, is_over_limit,
@@ -43,8 +45,28 @@ ADMIN_KEY         = os.getenv("ADMIN_KEY", "faber2024")
 
 FREE_DAILY_LIMIT  = int(os.getenv("FREE_DAILY_LIMIT", 20))
 
+# ── META / WHATSAPP CLOUD API CONFIG ──────────────────────────────────────────
+
+WHATSAPP_TOKEN       = os.getenv("WHATSAPP_TOKEN", "")
+PHONE_NUMBER_ID      = os.getenv("PHONE_NUMBER_ID", "")
+WABA_ID              = os.getenv("WABA_ID", "")
+WEBHOOK_VERIFY_TOKEN = os.getenv("WEBHOOK_VERIFY_TOKEN", "max_infinity_faber_2026")
+APP_DOMAIN           = os.getenv("APP_DOMAIN", "")  # e.g. max-infinity.onrender.com
+
+META_API_URL = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+META_HEADERS = {
+    "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+    "Content-Type":  "application/json"
+}
+
 client = Groq(api_key=GROQ_API_KEY)
 init_db()
+
+# In-memory store for generated images (served via /img/<id>)
+image_store: dict[str, bytes] = {}
+
+# Start keep-alive background thread (prevents Render free tier sleep)
+start_keep_alive()
 
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
 
@@ -545,6 +567,291 @@ def admin_broadcast():
         except Exception:
             pass
     return jsonify({"sent": sent, "total": len(senders)})
+
+
+# ── HEALTH CHECK ─────────────────────────────────────────────────────────────
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "service": "MAX∞"}), 200
+
+
+# ── IMAGE SERVING (for Meta API — needs a public URL) ─────────────────────────
+
+@app.route("/img/<image_id>")
+def serve_image(image_id: str):
+    """Serve a generated image so Meta can pull it by URL."""
+    data = image_store.get(image_id)
+    if not data:
+        return "Not found", 404
+    return send_file(io.BytesIO(data), mimetype="image/png")
+
+
+# ── META CLOUD API — SEND FUNCTIONS ──────────────────────────────────────────
+
+def meta_send_text(to: str, text: str):
+    """Send a plain text message via the Meta Cloud API."""
+    try:
+        r = requests.post(
+            META_API_URL,
+            headers=META_HEADERS,
+            json={
+                "messaging_product": "whatsapp",
+                "recipient_type":    "individual",
+                "to":                to,
+                "type":              "text",
+                "text":              {"body": text}
+            },
+            timeout=15
+        )
+        if r.status_code != 200:
+            print(f"[META SEND ERROR] {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"[META SEND ERROR] {e}")
+
+
+def meta_send_image(to: str, image_bytes: bytes, caption: str = ""):
+    """Send a generated image via the Meta Cloud API using a hosted URL."""
+    if not APP_DOMAIN:
+        # Fall back to sending a text description if no domain is configured
+        meta_send_text(to, f"🎨 {caption or 'Image generated! (Set APP_DOMAIN to enable image sending)'}")
+        return
+    try:
+        img_id  = str(uuid.uuid4())
+        image_store[img_id] = image_bytes
+        img_url = f"https://{APP_DOMAIN}/img/{img_id}"
+        r = requests.post(
+            META_API_URL,
+            headers=META_HEADERS,
+            json={
+                "messaging_product": "whatsapp",
+                "recipient_type":    "individual",
+                "to":                to,
+                "type":              "image",
+                "image":             {"link": img_url, "caption": caption or "Here you go! ✨"}
+            },
+            timeout=15
+        )
+        if r.status_code != 200:
+            print(f"[META IMG ERROR] {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"[META IMG ERROR] {e}")
+
+
+# ── META CLOUD API — DOWNLOAD MEDIA ──────────────────────────────────────────
+
+def meta_download_media(media_id: str) -> bytes | None:
+    """Download image/audio/document bytes using a Meta media ID."""
+    try:
+        # Step 1: get the media URL
+        r = requests.get(
+            f"https://graph.facebook.com/v20.0/{media_id}",
+            headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}"},
+            timeout=15
+        )
+        if r.status_code != 200:
+            print(f"[META MEDIA ERROR] {r.status_code}")
+            return None
+        media_url = r.json().get("url")
+        if not media_url:
+            return None
+        # Step 2: download the actual bytes
+        r2 = requests.get(
+            media_url,
+            headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}"},
+            timeout=30
+        )
+        return r2.content if r2.status_code == 200 else None
+    except Exception as e:
+        print(f"[META MEDIA ERROR] {e}")
+        return None
+
+
+# ── META WEBHOOK ──────────────────────────────────────────────────────────────
+
+@app.route("/webhook", methods=["GET"])
+def webhook_verify():
+    """
+    Meta calls this once when you register the webhook.
+    It sends hub.verify_token — we echo back hub.challenge to confirm.
+    """
+    mode      = request.args.get("hub.mode")
+    token     = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+
+    if mode == "subscribe" and token == WEBHOOK_VERIFY_TOKEN:
+        print("[WEBHOOK] ✓ Meta verification handshake passed")
+        return challenge, 200
+
+    print(f"[WEBHOOK] ✗ Bad verify token: {token!r}")
+    return "Forbidden", 403
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook_receive():
+    """
+    Every WhatsApp message sent to MAX∞ arrives here.
+    We parse the Meta payload, run the same business logic
+    as the /message endpoint, then reply via meta_send_*.
+    """
+    body = request.json or {}
+
+    # ── Parse Meta payload ───────────────────────────────────────────────────
+    try:
+        entry   = body["entry"][0]
+        changes = entry["changes"][0]
+        value   = changes["value"]
+
+        # Ignore status updates (delivered, read receipts, etc.)
+        if "messages" not in value:
+            return "OK", 200
+
+        msg      = value["messages"][0]
+        sender   = msg["from"]          # E.164 phone number, e.g. "2348163958919"
+        msg_type = msg["type"]          # text | image | audio | document
+        name     = (
+            value.get("contacts", [{}])[0]
+                 .get("profile", {})
+                 .get("name", "")
+        )
+    except (KeyError, IndexError) as e:
+        print(f"[WEBHOOK] Parse error: {e}")
+        return "OK", 200
+
+    print(f"[WEBHOOK] type={msg_type} from={sender} name={name}")
+
+    # ── Tick message count & onboarding ──────────────────────────────────────
+    user, is_new = tick_message(sender)
+
+    if name and not user.get("name"):
+        update_user(sender, name=name)
+
+    if is_new or not user.get("onboarded"):
+        update_user(sender, onboarded=1)
+        notify_joseph(f"👤 *New MAX∞ user!*\nName: {name or 'Unknown'}\nNumber: wa.me/{sender}")
+        meta_send_text(sender, ONBOARDING_MSG.format(limit=FREE_DAILY_LIMIT))
+        return "OK", 200
+
+    # ── Extract message content by type ──────────────────────────────────────
+    text       = ""
+    audio_data = None
+    image_data = None
+    file_data  = None
+    file_name  = ""
+
+    if msg_type == "text":
+        text = msg["text"]["body"].strip()
+
+    elif msg_type == "image":
+        media_id   = msg["image"]["id"]
+        text       = msg["image"].get("caption", "")
+        image_data = meta_download_media(media_id)
+
+    elif msg_type == "audio":
+        media_id   = msg["audio"]["id"]
+        audio_data = meta_download_media(media_id)
+
+    elif msg_type == "document":
+        media_id  = msg["document"]["id"]
+        file_name = msg["document"].get("filename", "")
+        file_data = meta_download_media(media_id)
+        text      = msg["document"].get("caption", "")
+
+    else:
+        meta_send_text(sender, "I can handle text, images, voice notes, and documents. Try one of those! 😊")
+        return "OK", 200
+
+    # ── Commands ─────────────────────────────────────────────────────────────
+    if text.upper() == "HELP":
+        used = user.get("daily_count", 0)
+        meta_send_text(sender, HELP_MSG.format(used=used, limit=FREE_DAILY_LIMIT))
+        return "OK", 200
+
+    if text.upper() == "UPGRADE":
+        meta_send_text(sender, UPGRADE_MSG.format(limit=FREE_DAILY_LIMIT, paystack=PAYSTACK_LINK))
+        return "OK", 200
+
+    # ── Phone number capture (after HIRE prompt) ──────────────────────────────
+    import re
+    phone_pattern = re.compile(r'(\+?234|0)[789]\d{9}')
+    if text and phone_pattern.search(text):
+        phone = phone_pattern.search(text).group()
+        notify_joseph(
+            f"📞 *HIRE lead phone received!*\n\nName: {name or 'Unknown'}\nPhone: {phone}\n"
+            f"wa.me/{phone.replace('+','').replace('0','234',1) if phone.startswith('0') else phone.replace('+','')}"
+        )
+
+    # ── Hire intent ───────────────────────────────────────────────────────────
+    if msg_type in ("text", "audio") and text and check_hire_intent(sender, text):
+        meta_send_text(sender, HIRE_RESPONSE)
+        return "OK", 200
+
+    # ── Daily limit check ─────────────────────────────────────────────────────
+    if is_over_limit(sender, FREE_DAILY_LIMIT):
+        meta_send_text(sender, UPGRADE_MSG.format(limit=FREE_DAILY_LIMIT, paystack=PAYSTACK_LINK))
+        return "OK", 200
+
+    # ── Periodic FABER pitch ──────────────────────────────────────────────────
+    pitch = get_pitch_if_due(user)
+
+    # ── Voice note ────────────────────────────────────────────────────────────
+    if msg_type == "audio":
+        if not audio_data:
+            meta_send_text(sender, "I couldn't receive that voice note. Try again! 🎙️")
+            return "OK", 200
+        text = transcribe_audio(audio_data)
+        if not text:
+            meta_send_text(sender, "I couldn't make out that voice note. Try typing or send it again.")
+            return "OK", 200
+        print(f"[TRANSCRIBE] {text}")
+
+    # ── Image understanding ───────────────────────────────────────────────────
+    if msg_type == "image":
+        if not image_data:
+            meta_send_text(sender, "I couldn't load that image. Send it again? 📸")
+            return "OK", 200
+        reply = understand_image(image_data, text or "What's in this image? Describe it in detail.")
+        full  = (pitch + "\n\n" + reply) if pitch else reply
+        meta_send_text(sender, full)
+        return "OK", 200
+
+    # ── Document reading ──────────────────────────────────────────────────────
+    if msg_type == "document":
+        if not file_data:
+            meta_send_text(sender, "I couldn't receive that file. Try sending it again.")
+            return "OK", 200
+        if file_name.lower().endswith(".pdf"):
+            doc_text = extract_pdf(file_data)
+        elif file_name.lower().endswith((".docx", ".doc")):
+            doc_text = extract_docx(file_data)
+        else:
+            meta_send_text(sender, "I can only read PDF and Word documents right now.")
+            return "OK", 200
+        if not doc_text.strip():
+            meta_send_text(sender, "Couldn't extract text — this document might be scanned or image-based.")
+            return "OK", 200
+        save_document(sender, doc_text[:6000])
+        question = text if text else "Please summarize this document."
+        reply    = get_ai_response(sender, question)
+        full     = (pitch + "\n\n" + reply) if pitch else reply
+        meta_send_text(sender, full)
+        return "OK", 200
+
+    # ── Text (and transcribed voice) ──────────────────────────────────────────
+    reply = get_ai_response(sender, text)
+
+    if reply.strip().startswith("GENERATE_IMAGE:"):
+        prompt = reply.replace("GENERATE_IMAGE:", "").strip()
+        img    = generate_image(prompt)
+        if img:
+            meta_send_image(sender, img, "Here you go! ✨")
+        else:
+            meta_send_text(sender, "Couldn't generate that image right now. Try again in a moment.")
+        return "OK", 200
+
+    full = (pitch + "\n\n" + reply) if pitch else reply
+    meta_send_text(sender, full)
+    return "OK", 200
 
 
 if __name__ == "__main__":
