@@ -3,7 +3,7 @@ const qrcode = require('qrcode-terminal')
 const axios  = require('axios')
 const http   = require('http')
 
-const FLASK_URL    = 'https://max-flask.onrender.com/message'
+const FLASK_URL    = process.env.FLASK_URL || 'http://localhost:5000/message'
 const BOT_START    = Math.floor(Date.now() / 1000)
 
 let sock = null // global so /send endpoint can use it
@@ -29,6 +29,9 @@ const server = http.createServer(async (req, res) => {
                 res.end(e.message)
             }
         })
+    } else if (req.method === 'GET' && req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ status: 'ok', service: 'baileys', connected: !!sock }))
     } else {
         res.writeHead(404)
         res.end()

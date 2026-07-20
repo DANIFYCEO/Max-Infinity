@@ -1,14 +1,6 @@
 {
-  "name": "max-baileys",
+  "name": "max-infinity",
   "version": "1.0.0",
-  "description": "MAX∞ WhatsApp bridge",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.16",
-    "axios": "^1.6.0",
-    "qrcode-terminal": "^0.12.0"
-  }
+  "description": "MAX∞ by FABER — WhatsApp AI Assistant",
+  "private": true
 }

@@ -7,6 +7,7 @@ DB_PATH = "max_users.db"
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA journal_mode=WAL')
     c = conn.cursor()
 
     c.execute("""

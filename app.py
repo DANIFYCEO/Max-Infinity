@@ -19,6 +19,7 @@ from flask import Flask, request, jsonify, send_file
 from groq import Groq
 from dotenv import load_dotenv
 from keep_alive import start_keep_alive
+import re
 
 from database import (
     init_db, tick_message, is_over_limit,
@@ -62,8 +63,9 @@ META_HEADERS = {
 client = Groq(api_key=GROQ_API_KEY)
 init_db()
 
-# In-memory store for generated images (served via /img/<id>)
-image_store: dict[str, bytes] = {}
+# Image store directory (persistent on disk)
+IMAGE_STORE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'image_cache')
+os.makedirs(IMAGE_STORE_DIR, exist_ok=True)
 
 # Start keep-alive background thread (prevents Render free tier sleep)
 start_keep_alive()
@@ -433,7 +435,6 @@ def message():
             return jsonify({"reply": UPGRADE_MSG.format(limit=FREE_DAILY_LIMIT, paystack=PAYSTACK_LINK)})
 
         # ── Phone number reply (after HIRE prompt)
-        import re
         phone_pattern = re.compile(r'(\+?234|0)[789]\d{9}')
         if phone_pattern.search(text):
             phone = phone_pattern.search(text).group()
@@ -580,11 +581,11 @@ def health():
 
 @app.route("/img/<image_id>")
 def serve_image(image_id: str):
-    """Serve a generated image so Meta can pull it by URL."""
-    data = image_store.get(image_id)
-    if not data:
+    """Serve a generated image from disk so Meta can pull it by URL."""
+    path = os.path.join(IMAGE_STORE_DIR, f"{image_id}.png")
+    if not os.path.exists(path):
         return "Not found", 404
-    return send_file(io.BytesIO(data), mimetype="image/png")
+    return send_file(path, mimetype="image/png")
 
 
 # ── META CLOUD API — SEND FUNCTIONS ──────────────────────────────────────────
@@ -618,7 +619,9 @@ def meta_send_image(to: str, image_bytes: bytes, caption: str = ""):
         return
     try:
         img_id  = str(uuid.uuid4())
-        image_store[img_id] = image_bytes
+        img_path = os.path.join(IMAGE_STORE_DIR, f"{img_id}.png")
+        with open(img_path, 'wb') as f:
+            f.write(image_bytes)
         img_url = f"https://{APP_DOMAIN}/img/{img_id}"
         r = requests.post(
             META_API_URL,
@@ -772,7 +775,6 @@ def webhook_receive():
         return "OK", 200
 
     # ── Phone number capture (after HIRE prompt) ──────────────────────────────
-    import re
     phone_pattern = re.compile(r'(\+?234|0)[789]\d{9}')
     if text and phone_pattern.search(text):
         phone = phone_pattern.search(text).group()
