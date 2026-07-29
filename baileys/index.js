@@ -71,7 +71,8 @@ async function startBot() {
     sock.ev.on('creds.update', saveCreds)
 
     // Request pairing code instead of QR (for same-phone setup)
-    if (usePairingCode) {
+    if (usePairingCode && !global.pairingRequested) {
+        global.pairingRequested = true
         setTimeout(async () => {
             try {
                 const code = await sock.requestPairingCode(PHONE_NUMBER)
@@ -85,6 +86,7 @@ async function startBot() {
                 console.log('')
             } catch (e) {
                 console.error('[PAIRING] Error:', e.message)
+                global.pairingRequested = false
             }
         }, 3000)
     }
