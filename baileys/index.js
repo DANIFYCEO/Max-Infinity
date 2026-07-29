@@ -58,8 +58,7 @@ const PHONE_NUMBER = process.env.PHONE_NUMBER || ''  // e.g. 2347042650401
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('./auth_info')
-
-    const usePairingCode = !!PHONE_NUMBER && !state.creds?.registered
+    const usePairingCode = false // FORCING QR CODE MODE ONLY
 
     sock = makeWASocket({
         auth: state,
