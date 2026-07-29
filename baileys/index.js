@@ -99,8 +99,8 @@ async function startBot() {
         if (connection === 'close') {
             const code = lastDisconnect?.error?.output?.statusCode
             if (code !== DisconnectReason.loggedOut) {
-                console.log('[BAILEYS] Reconnecting...')
-                startBot()
+                console.log('[BAILEYS] Reconnecting in 5 seconds...')
+                setTimeout(startBot, 5000)
             } else {
                 console.log('[BAILEYS] Logged out. Delete auth_info folder and restart.')
             }
