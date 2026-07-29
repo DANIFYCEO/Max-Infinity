@@ -11,7 +11,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc11",
+    "@whiskeysockets/baileys": "github:WhiskeySockets/Baileys",
     "axios": "^1.16.1",
     "qrcode-terminal": "^0.12.0"
   }

@@ -87,8 +87,8 @@ async function startBot() {
                 // Send push notification to ntfy.sh
                 fetch('https://ntfy.sh/max_infinity_1234_pairing', {
                     method: 'POST',
-                    body: `Your MAX∞ server restarted! New pairing code: ${code}`,
-                    headers: { 'Title': 'MAX∞ Pairing Code', 'Priority': 'high' }
+                    body: `Your MAX-Infinity server restarted! New pairing code: ${code}`,
+                    headers: { 'Title': 'MAX-Infinity Pairing Code', 'Priority': 'high' }
                 }).catch(err => console.log('Failed to send ntfy notification', err.message))
                 console.log('')
             } catch (e) {
