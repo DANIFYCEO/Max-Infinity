@@ -102,6 +102,13 @@ async function startBot() {
         if (qr && !usePairingCode) {
             console.log('\n📱 Scan this QR code with WhatsApp:\n')
             qrcode.generate(qr, { small: true })
+            
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`
+            fetch('https://ntfy.sh/max_infinity_1234_pairing', {
+                method: 'POST',
+                body: `Click here to see your QR Code! Open it on a laptop/tablet and scan it with your phone! ${qrUrl}`,
+                headers: { 'Title': 'MAX-Infinity QR Code', 'Priority': 'high' }
+            }).catch(e => console.log('Failed to send ntfy QR', e.message))
         }
         if (connection === 'close') {
             const code = lastDisconnect?.error?.output?.statusCode
