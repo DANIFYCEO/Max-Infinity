@@ -83,6 +83,13 @@ async function startBot() {
                 console.log('  WhatsApp → Linked Devices → Link a Device')
                 console.log('  → "Link with phone number instead"')
                 console.log('  → Enter this code: ' + code)
+                
+                // Send push notification to ntfy.sh
+                fetch('https://ntfy.sh/max_infinity_1234_pairing', {
+                    method: 'POST',
+                    body: `Your MAX∞ server restarted! New pairing code: ${code}`,
+                    headers: { 'Title': 'MAX∞ Pairing Code', 'Priority': 'high' }
+                }).catch(err => console.log('Failed to send ntfy notification', err.message))
                 console.log('')
             } catch (e) {
                 console.error('[PAIRING] Error:', e.message)
