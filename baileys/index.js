@@ -22,7 +22,12 @@ const server = http.createServer(async (req, res) => {
                 }
                 if (type === 'audio' && audio_bytes) {
                     const audioBuf = Buffer.from(audio_bytes, 'base64')
-                    await sock.sendMessage(to, { audio: audioBuf, mimetype: 'audio/mp4', ptt: true })
+                    const isOgg = audioBuf.slice(0, 4).toString() === 'OggS'
+                    await sock.sendMessage(to, {
+                        audio: audioBuf,
+                        mimetype: isOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg',
+                        ptt: isOgg ? true : false
+                    })
                 } else if (type === 'sticker' && sticker_bytes) {
                     const stickerBuf = Buffer.from(sticker_bytes, 'base64')
                     await sock.sendMessage(to, { sticker: stickerBuf })
@@ -206,15 +211,16 @@ async function startBot() {
 
                 if (result.type === 'audio' && result.audio_bytes) {
                     const audioBuf = Buffer.from(result.audio_bytes, 'base64')
+                    const isOgg = audioBuf.slice(0, 4).toString() === 'OggS'
                     await sock.sendMessage(chatId, {
                         audio: audioBuf,
-                        mimetype: 'audio/mp4',
-                        ptt: true
+                        mimetype: isOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg',
+                        ptt: isOgg ? true : false
                     })
                     if (result.caption) {
                         await sock.sendMessage(chatId, { text: result.caption })
                     }
-                    console.log('[SEND] voice note audio sent')
+                    console.log(`[SEND] voice note audio sent (isOgg=${isOgg})`)
 
                 } else if (result.type === 'sticker' && result.sticker_bytes) {
                     const stickerBuf = Buffer.from(result.sticker_bytes, 'base64')
