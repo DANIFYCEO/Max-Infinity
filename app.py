@@ -223,13 +223,44 @@ def transcribe_audio(audio_bytes: bytes) -> str:
         print(f"[TRANSCRIBE ERROR] {e}")
         return ""
 
+# ── AI MODELS CONFIG ─────────────────────────────────────────────────────────
+
+CHAT_MODEL_PRIMARY  = "openai/gpt-oss-120b"
+CHAT_MODEL_FALLBACK = "qwen/qwen3.8-27b"
+VISION_MODEL        = "qwen/qwen3.8-27b"
+
+def call_groq_chat(messages, max_tokens=1500):
+    """Call Groq with automatic failover from GPT-OSS-120B to Qwen 3.8."""
+    try:
+        resp = client.chat.completions.create(
+            model=CHAT_MODEL_PRIMARY,
+            messages=messages,
+            max_tokens=max_tokens
+        )
+        content = resp.choices[0].message.content or ""
+        if content.strip():
+            return content
+    except Exception as e:
+        print(f"[GROQ PRIMARY ERROR] {e} - Falling back to {CHAT_MODEL_FALLBACK}")
+
+    try:
+        resp = client.chat.completions.create(
+            model=CHAT_MODEL_FALLBACK,
+            messages=messages,
+            max_tokens=max_tokens
+        )
+        return resp.choices[0].message.content or ""
+    except Exception as e:
+        print(f"[GROQ FALLBACK ERROR] {e}")
+        return "I'm having a little trouble right now. Give me a sec and try again."
+
 # ── IMAGE UNDERSTANDING ───────────────────────────────────────────────────────
 
-def understand_image(image_bytes: bytes, question: str = "What is in this image?") -> str:
+def understand_image(image_bytes: bytes, question: str = "What is in this image? Describe it in detail.") -> str:
     try:
         b64 = base64.b64encode(image_bytes).decode()
         resp = client.chat.completions.create(
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            model=VISION_MODEL,
             messages=[{
                 "role": "user",
                 "content": [
@@ -244,10 +275,11 @@ def understand_image(image_bytes: bytes, question: str = "What is in this image?
         print(f"[IMG UNDERSTAND ERROR] {e}")
         return "I had trouble analyzing that image. Try sending it again."
 
-# ── IMAGE GENERATION (HuggingFace FLUX.1-schnell) ────────────────────────────
+# ── IMAGE GENERATION (FLUX.1-schnell with Stability AI Fallback) ─────────────
 
 def generate_image(prompt: str) -> bytes | None:
     print(f"[IMG GEN] {prompt[:80]}...")
+    # 1. Try Hugging Face FLUX.1-schnell
     try:
         r = requests.post(
             "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
@@ -255,14 +287,13 @@ def generate_image(prompt: str) -> bytes | None:
             json={"inputs": prompt, "parameters": {"width": 1024, "height": 1024, "num_inference_steps": 4}},
             timeout=90
         )
-        print(f"[IMG GEN] status={r.status_code} size={len(r.content)}")
+        print(f"[IMG GEN] HF status={r.status_code} size={len(r.content)}")
         if r.status_code == 200 and len(r.content) > 5000:
-            print(f"[IMG GEN] ✓ ready")
+            print(f"[IMG GEN] ✓ HF FLUX ready")
             return r.content
         if r.status_code == 503:
-            # Model loading, wait and retry once
             import time
-            time.sleep(20)
+            time.sleep(15)
             r = requests.post(
                 "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
                 headers={"Authorization": f"Bearer {os.getenv('HF_TOKEN')}"},
@@ -271,11 +302,29 @@ def generate_image(prompt: str) -> bytes | None:
             )
             if r.status_code == 200 and len(r.content) > 5000:
                 return r.content
-        print(f"[IMG GEN ERROR] {r.text[:300]}")
-        return None
     except Exception as e:
-        print(f"[IMG GEN ERROR] {e}")
-        return None
+        print(f"[HF FLUX ERROR] {e}")
+
+    # 2. Try Stability AI Fallback
+    stability_key = os.getenv("STABILITY_API_KEY")
+    if stability_key:
+        try:
+            print(f"[IMG GEN] Trying Stability AI fallback...")
+            r = requests.post(
+                "https://api.stability.ai/v2beta/stable-image/generate/core",
+                headers={"Authorization": f"Bearer {stability_key}", "Accept": "image/*"},
+                files={"none": ''},
+                data={"prompt": prompt, "output_format": "jpeg"},
+                timeout=30
+            )
+            if r.status_code == 200 and len(r.content) > 5000:
+                print(f"[IMG GEN] ✓ Stability AI ready")
+                return r.content
+            print(f"[STABILITY ERROR] {r.status_code} {r.text[:200]}")
+        except Exception as e:
+            print(f"[STABILITY ERROR] {e}")
+
+    return None
 
 # ── WEB SEARCH (Tavily) ───────────────────────────────────────────────────────
 
@@ -306,6 +355,27 @@ def web_search(query: str) -> str:
     except Exception as e:
         print(f"[SEARCH ERROR] {e}")
         return ""
+
+# ── URL / LINK READER ─────────────────────────────────────────────────────────
+
+URL_REGEX = re.compile(r'https?://[^\s<>"]+|www\.[^\s<>"]+')
+
+def fetch_url_content(url: str) -> str:
+    """Fetch and strip readable text from a web link."""
+    if not url.startswith("http"):
+        url = "https://" + url
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        r = requests.get(url, headers=headers, timeout=12)
+        if r.status_code == 200:
+            cleaned = re.sub(r'<script.*?</script>', ' ', r.text, flags=re.DOTALL | re.IGNORECASE)
+            cleaned = re.sub(r'<style.*?</style>', ' ', cleaned, flags=re.DOTALL | re.IGNORECASE)
+            cleaned = re.sub(r'<[^>]+>', ' ', cleaned)
+            cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+            return cleaned[:4000]
+    except Exception as e:
+        print(f"[URL FETCH ERROR] {e}")
+    return ""
 
 # ── ADBOT ─────────────────────────────────────────────────────────────────────
 
@@ -340,7 +410,9 @@ def get_pitch_if_due(user: dict) -> str:
 
 MEMORY_TRIGGERS = [
     "my name is", "i am", "i'm", "i work at", "i study",
-    "i live in", "i'm from", "i go to", "i work as"
+    "i live in", "i'm from", "i go to", "i work as", "call me",
+    "my business is", "my shop is", "my brand is", "my goal is",
+    "i sell", "my birthday is", "my budget is"
 ]
 
 
@@ -349,20 +421,25 @@ def get_ai_response(sender: str, message: str) -> str:
     memory   = get_memory(sender)
     document = load_document(sender)
 
+    # ── URL link reading capability
+    url_match = URL_REGEX.search(message)
+    url_ctx = ""
+    if url_match:
+        found_url = url_match.group(0)
+        print(f"[URL DETECTED] Fetching content for: {found_url}")
+        page_text = fetch_url_content(found_url)
+        if page_text:
+            url_ctx = f"\n\n[Webpage Content from {found_url}]:\n{page_text}\n"
+
     memory_ctx = ("\n\nWhat you know about this user:\n" + "\n".join(memory)) if memory else ""
     doc_ctx    = (f"\n\nUser shared a document. Content:\n\n{document}") if document else ""
 
-    system_msg = SYSTEM_PROMPT + memory_ctx + doc_ctx
+    system_msg = SYSTEM_PROMPT + memory_ctx + doc_ctx + url_ctx
     messages   = [{"role": "system", "content": system_msg}] + history
     messages.append({"role": "user", "content": message})
 
     try:
-        resp  = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            max_tokens=1500
-        )
-        reply = resp.choices[0].message.content
+        reply = call_groq_chat(messages, max_tokens=1500)
 
         # ── Web search trigger
         if reply.strip().startswith("SEARCH:"):
@@ -375,12 +452,7 @@ def get_ai_response(sender: str, message: str) -> str:
             if search_ctx:
                 messages.append({"role": "assistant", "content": reply})
                 messages.append({"role": "user", "content": f"Here are the search results:\n{search_ctx}\n\nNow answer the user's question naturally based on this."})
-                resp2 = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=messages,
-                    max_tokens=1000
-                )
-                reply = resp2.choices[0].message.content
+                reply = call_groq_chat(messages, max_tokens=1000)
             else:
                 reply = "I tried searching for that but couldn't get results right now. Try again in a moment."
 
@@ -396,7 +468,7 @@ def get_ai_response(sender: str, message: str) -> str:
         return reply
 
     except Exception as e:
-        print(f"[GROQ ERROR] {e}")
+        print(f"[AI RESPONSE ERROR] {e}")
         return "I'm having a little trouble right now. Give me a sec and try again."
 
 # ── /message ENDPOINT ─────────────────────────────────────────────────────────
@@ -568,6 +640,38 @@ def admin_broadcast():
         except Exception:
             pass
     return jsonify({"sent": sent, "total": len(senders)})
+
+
+# ── ONE-CLICK SERVER UPDATE (For Azure VM / VPS) ──────────────────────────────
+
+@app.route("/admin/update", methods=["GET", "POST"])
+def admin_update():
+    """Trigger git pull and reload the server automatically."""
+    if not admin_auth():
+        return "Unauthorized", 401
+    import subprocess
+    import threading
+
+    def reload_process():
+        time.sleep(2)
+        subprocess.run("pm2 restart max-flask || pm2 reload all || true", shell=True)
+
+    try:
+        res = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        output = (res.stdout or "") + "\n" + (res.stderr or "")
+        threading.Thread(target=reload_process, daemon=True).start()
+        return jsonify({
+            "status": "success",
+            "git_output": output.strip(),
+            "message": "Git pull completed! Reloading server..."
+        }), 200
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
 # ── HEALTH CHECK ─────────────────────────────────────────────────────────────

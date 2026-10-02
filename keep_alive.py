@@ -21,7 +21,7 @@ def keep_alive():
         return
 
     url = f"https://{domain}/health"
-    print(f"[KEEP-ALIVE] Starting pinger → {url}")
+    print(f"[KEEP-ALIVE] Starting pinger -> {url}")
 
     while True:
         time.sleep(14 * 60)  # 14 minutes

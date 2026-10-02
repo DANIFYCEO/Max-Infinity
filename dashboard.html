@@ -283,6 +283,7 @@ footer{
   </div>
   <div class="nav-right">
     <div class="live-badge"><div class="live-dot"></div>System Online</div>
+    <button class="btn-refresh" id="btn-update" onclick="updateServer()" style="border-color:#38bdf8;color:#38bdf8;">Update Server</button>
     <button class="btn-refresh" onclick="loadAll()">Refresh</button>
   </div>
 </nav>
@@ -484,6 +485,24 @@ async function sendBroadcast() {
     res.textContent = 'Failed. Is Flask running?'
   }
   btn.disabled = false; btn.textContent = 'Send to All Users'
+}
+
+async function updateServer() {
+  const btn = document.getElementById('btn-update');
+  if (!confirm("Pull latest code from GitHub and reload MAX on the server?")) return;
+  btn.disabled = true;
+  btn.textContent = "Updating...";
+  try {
+    const r = await fetch(api('/admin/update'));
+    const d = await r.json();
+    alert(d.message || d.git_output || "Server update completed!");
+  } catch(e) {
+    alert("Update request sent. The server is restarting now!");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Update Server";
+    setTimeout(loadAll, 4000);
+  }
 }
 
 function fmt(n) { return (n||0).toLocaleString() }
