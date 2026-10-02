@@ -27,7 +27,8 @@ from database import (
     save_conversation, load_conversation,
     save_document, load_document,
     save_lead, get_user, get_all_senders,
-    get_stats, get_recent_leads, get_recent_users, get_daily_message_stats
+    get_stats, get_recent_leads, get_recent_users, get_daily_message_stats,
+    add_reminder, get_due_reminders, mark_reminder_sent
 )
 
 load_dotenv()
@@ -69,6 +70,33 @@ os.makedirs(IMAGE_STORE_DIR, exist_ok=True)
 
 # Start keep-alive background thread (prevents Render free tier sleep)
 start_keep_alive()
+
+# ── BACKGROUND REMINDER SCHEDULER ─────────────────────────────────────────────
+
+def reminder_worker():
+    """Background worker checking SQLite for due reminders every 15 seconds."""
+    import threading
+    while True:
+        try:
+            now = int(time.time())
+            due = get_due_reminders(now)
+            for r in due:
+                sender = r["sender"]
+                task = r["task"]
+                r_id = r["id"]
+                print(f"[REMINDER DUE] Sending reminder #{r_id} to {sender}")
+                requests.post(
+                    f"{BAILEYS_URL}/send",
+                    json={"to": sender, "message": f"⏰ *REMINDER:*\n\n{task}"},
+                    timeout=10
+                )
+                mark_reminder_sent(r_id)
+        except Exception as e:
+            print(f"[REMINDER WORKER ERROR] {e}")
+        time.sleep(15)
+
+import threading
+threading.Thread(target=reminder_worker, daemon=True).start()
 
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
 
@@ -115,6 +143,30 @@ IMAGE GENERATION:
   GENERATE_IMAGE: <detailed description of the image>
 - Nothing else. Just that one line.
 
+STICKER CREATION:
+- If the user asks you to make or create a sticker from text (e.g. "make a sticker of a laughing cat", "create sticker of..."), respond ONLY with:
+  CREATE_STICKER: <concise description of sticker subject on clean background>
+- Nothing else. Just that one line.
+
+VOICE REPLIES:
+- If the user explicitly asks you to reply with voice, speak, send audio, or a voice note (e.g. "reply in voice", "speak to me", "send a voice note"):
+  respond ONLY with:
+  VOICE_REPLY: <natural conversational response to speak>
+- Nothing else. Just that one line.
+
+REMINDERS:
+- If the user asks you to set a reminder (e.g. "remind me in 10 minutes to take medicine", "remind me in 1 hour to buy fuel"):
+  Calculate the delay in seconds from right now.
+  Respond ONLY with:
+  SET_REMINDER: <seconds_from_now> | <reminder message>
+- Nothing else. Just that one line.
+
+PROXY MESSAGING:
+- If the user asks you to send or forward a message to another phone number (e.g. "send a message to 08012345678 saying...", "text 234816... that the meeting is 2pm"):
+  Respond ONLY with:
+  SEND_MESSAGE_TO: <recipient_phone_number> | <message_body>
+- Nothing else. Just that one line.
+
 WEB SEARCH:
 - If the user asks about current news, prices, exchange rates, sports scores, recent events, or anything that needs up-to-date information, respond ONLY with:
   SEARCH: <concise search query>
@@ -125,13 +177,15 @@ ONBOARDING_MSG = """Hey! 👋 I'm *MAX* — your AI assistant, built by *FABER*.
 
 Here's what I can do:
 • 💬 Chat about anything, anytime
-• 📄 Read & summarize your PDFs and Word docs
-• 🖼️ Analyze images you send me
+• 🎙️ Voice notes — talk to me or get voice replies
 • 🎨 Generate images from your descriptions
-• 🎙️ Transcribe your voice notes
+• 🖼️ Analyze & edit photos (brighten, B&W, filters)
+• 🎭 Create WhatsApp stickers
+• ⏰ Set reminders for your day
+• 📩 Send messages to other people for you
+• 📄 Read & summarize PDFs, Word docs & web links
 • 🔍 Search the web for current information
-• ✍️ Write essays, assignments and articles
-• 🧠 Remember things about you across our chats
+• 🧠 Remember things about you across chats
 
 You get *{limit} free messages per day*. Reply *UPGRADE* anytime for unlimited access.
 Reply *HELP* anytime to see this menu again.
@@ -142,12 +196,15 @@ What's on your mind? 🚀"""
 HELP_MSG = """Here's everything I can do for you 👇
 
 💬 *Chat* — ask me anything
+🎙️ *Voice Notes* — send voice notes or say "speak to me"
+🎨 *Image Generation* — "generate an image of a luxury car in Abuja"
+🖼️ *Image Editing* — send a photo with "make it brighter", "black and white", etc.
+🎭 *Stickers* — "make sticker of a laughing dog" or send a photo saying "make sticker"
+⏰ *Reminders* — "remind me in 15 minutes to call mum"
+📩 *Proxy Messaging* — "send message to 080... saying meeting starts now"
 🔍 *Web search* — "what's the dollar rate today?"
-🎨 *Image generation* — "generate a sunset over Lagos"
-🖼️ *Image analysis* — send me any photo
+🌐 *Link Reader* — send any article or website link to summarize
 📄 *Document reading* — send a PDF or Word doc
-🎙️ *Voice notes* — send a voice message, I'll understand it
-✍️ *Essays & assignments* — "write an essay on climate change"
 🧠 *Memory* — I remember things you tell me
 
 💳 *UPGRADE* — get unlimited messages
@@ -275,37 +332,24 @@ def understand_image(image_bytes: bytes, question: str = "What is in this image?
         print(f"[IMG UNDERSTAND ERROR] {e}")
         return "I had trouble analyzing that image. Try sending it again."
 
-# ── IMAGE GENERATION (FLUX.1-schnell with Stability AI Fallback) ─────────────
+# ── IMAGE GENERATION (Pollinations FLUX with Stability AI Fallback) ─────────
 
 def generate_image(prompt: str) -> bytes | None:
     print(f"[IMG GEN] {prompt[:80]}...")
-    # 1. Try Hugging Face FLUX.1-schnell
+    # 1. Primary: Pollinations FLUX.1 (Top-tier photorealistic, free, high speed)
     try:
-        r = requests.post(
-            "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
-            headers={"Authorization": f"Bearer {os.getenv('HF_TOKEN')}"},
-            json={"inputs": prompt, "parameters": {"width": 1024, "height": 1024, "num_inference_steps": 4}},
-            timeout=90
-        )
-        print(f"[IMG GEN] HF status={r.status_code} size={len(r.content)}")
+        import random
+        seed = random.randint(1, 999999)
+        enhanced = f"{prompt}, highly detailed, professional photography, photorealistic, 8k, cinematic lighting"
+        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(enhanced)}?width=1024&height=1024&nologo=true&model=flux&seed={seed}"
+        r = requests.get(url, timeout=60)
         if r.status_code == 200 and len(r.content) > 5000:
-            print(f"[IMG GEN] ✓ HF FLUX ready")
+            print(f"[IMG GEN] ✓ Pollinations FLUX ready ({len(r.content)} bytes)")
             return r.content
-        if r.status_code == 503:
-            import time
-            time.sleep(15)
-            r = requests.post(
-                "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
-                headers={"Authorization": f"Bearer {os.getenv('HF_TOKEN')}"},
-                json={"inputs": prompt, "parameters": {"width": 1024, "height": 1024, "num_inference_steps": 4}},
-                timeout=90
-            )
-            if r.status_code == 200 and len(r.content) > 5000:
-                return r.content
     except Exception as e:
-        print(f"[HF FLUX ERROR] {e}")
+        print(f"[POLLINATIONS ERROR] {e}")
 
-    # 2. Try Stability AI Fallback
+    # 2. Fallback: Stability AI
     stability_key = os.getenv("STABILITY_API_KEY")
     if stability_key:
         try:
@@ -320,11 +364,81 @@ def generate_image(prompt: str) -> bytes | None:
             if r.status_code == 200 and len(r.content) > 5000:
                 print(f"[IMG GEN] ✓ Stability AI ready")
                 return r.content
-            print(f"[STABILITY ERROR] {r.status_code} {r.text[:200]}")
         except Exception as e:
             print(f"[STABILITY ERROR] {e}")
 
     return None
+
+# ── VOICE REPLIES (Edge TTS) ──────────────────────────────────────────────────
+
+def generate_voice_reply(text: str, voice: str = "en-NG-AbeoNeural") -> bytes | None:
+    """Generate audio voice note from text using Edge TTS."""
+    try:
+        import edge_tts, asyncio
+        clean_text = re.sub(r'[*_~`#]', '', text)[:800].strip()
+        if not clean_text:
+            return None
+        communicate = edge_tts.Communicate(clean_text, voice)
+        async def _run():
+            data = bytearray()
+            async for chunk in communicate.stream():
+                if chunk['type'] == 'audio':
+                    data.extend(chunk['data'])
+            return bytes(data)
+        return asyncio.run(_run())
+    except Exception as e:
+        print(f"[TTS ERROR] {e}")
+        return None
+
+# ── STICKER CREATION (512x512 WebP) ──────────────────────────────────────────
+
+def create_sticker(image_bytes: bytes) -> bytes | None:
+    """Convert an image into a 512x512 transparent WebP WhatsApp sticker."""
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+        img.thumbnail((512, 512), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+        offset = ((512 - img.width) // 2, (512 - img.height) // 2)
+        canvas.paste(img, offset)
+        out = io.BytesIO()
+        canvas.save(out, format="WEBP")
+        return out.getvalue()
+    except Exception as e:
+        print(f"[STICKER ERROR] {e}")
+        return None
+
+# ── IMAGE EDITING (Pillow) ────────────────────────────────────────────────────
+
+def edit_image(image_bytes: bytes, command: str) -> bytes | None:
+    """Apply visual editing and filters to an image."""
+    try:
+        from PIL import Image, ImageEnhance, ImageOps, ImageFilter
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        cmd = command.lower()
+        if "bright" in cmd:
+            img = ImageEnhance.Brightness(img).enhance(1.4)
+        elif "dark" in cmd:
+            img = ImageEnhance.Brightness(img).enhance(0.7)
+        elif "contrast" in cmd:
+            img = ImageEnhance.Contrast(img).enhance(1.5)
+        elif "black and white" in cmd or "grayscale" in cmd or "b&w" in cmd:
+            img = ImageOps.grayscale(img).convert("RGB")
+        elif "invert" in cmd or "negative" in cmd:
+            img = ImageOps.invert(img)
+        elif "blur" in cmd:
+            img = img.filter(ImageFilter.GaussianBlur(radius=3))
+        elif "sharp" in cmd:
+            img = img.filter(ImageFilter.SHARPEN)
+        elif "sepia" in cmd or "vintage" in cmd:
+            gray = ImageOps.grayscale(img)
+            img = ImageOps.colorize(gray, "#704214", "#C0A080")
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=92)
+        return out.getvalue()
+    except Exception as e:
+        print(f"[IMAGE EDIT ERROR] {e}")
+        return None
 
 # ── WEB SEARCH (Tavily) ───────────────────────────────────────────────────────
 
@@ -535,10 +649,45 @@ def message():
             if not text:
                 return jsonify({"reply": "I couldn't make out that voice note. Try sending it again or type your message."})
             print(f"[TRANSCRIBE] {text}")
+            reply = get_ai_response(sender, text)
+            full  = (pitch + "\n\n" + reply) if pitch else reply
+
+            # Reply with audio voice note
+            audio_reply = generate_voice_reply(reply)
+            if audio_reply:
+                return jsonify({
+                    "type": "audio",
+                    "audio_bytes": base64.b64encode(audio_reply).decode(),
+                    "caption": full
+                })
+            return jsonify({"reply": full})
 
         # ── Image message
         if msg_type == "image":
             image_bytes = base64.b64decode(data.get("image_b64", ""))
+            caption = (text or "").lower()
+
+            # 1. Check for sticker conversion request
+            if "sticker" in caption:
+                stk = create_sticker(image_bytes)
+                if stk:
+                    return jsonify({
+                        "type": "sticker",
+                        "sticker_bytes": base64.b64encode(stk).decode()
+                    })
+
+            # 2. Check for photo editing request
+            edit_keywords = ["bright", "dark", "contrast", "black and white", "grayscale", "b&w", "sepia", "vintage", "invert", "blur", "sharp"]
+            if any(k in caption for k in edit_keywords):
+                edited = edit_image(image_bytes, caption)
+                if edited:
+                    return jsonify({
+                        "type": "image",
+                        "image_bytes": base64.b64encode(edited).decode(),
+                        "caption": "Here is your edited photo! ✨"
+                    })
+
+            # 3. Standard image understanding
             reply = understand_image(image_bytes, text or "What's in this image? Describe it in detail.")
             full  = (pitch + "\n\n" + reply) if pitch else reply
             return jsonify({"reply": full})
@@ -564,6 +713,7 @@ def message():
         # ── Text (and transcribed voice)
         reply = get_ai_response(sender, text)
 
+        # ── Image generation trigger
         if reply.strip().startswith("GENERATE_IMAGE:"):
             prompt = reply.replace("GENERATE_IMAGE:", "").strip()
             img    = generate_image(prompt)
@@ -574,6 +724,87 @@ def message():
                     "caption":     "Here you go! ✨"
                 })
             return jsonify({"reply": "Couldn't generate that image right now. Try again in a moment."})
+
+        # ── Sticker creation trigger
+        if reply.strip().startswith("CREATE_STICKER:"):
+            sticker_prompt = reply.replace("CREATE_STICKER:", "").strip()
+            img = generate_image(sticker_prompt + ", vector sticker, clean background, white border")
+            if img:
+                stk = create_sticker(img)
+                if stk:
+                    return jsonify({
+                        "type": "sticker",
+                        "sticker_bytes": base64.b64encode(stk).decode()
+                    })
+            return jsonify({"reply": "Couldn't create that sticker right now. Try again in a moment."})
+
+        # ── Voice reply trigger
+        if reply.strip().startswith("VOICE_REPLY:"):
+            spoken = reply.replace("VOICE_REPLY:", "").strip()
+            audio_data = generate_voice_reply(spoken)
+            if audio_data:
+                return jsonify({
+                    "type": "audio",
+                    "audio_bytes": base64.b64encode(audio_data).decode(),
+                    "caption": spoken
+                })
+            return jsonify({"reply": spoken})
+
+        # ── Reminder trigger
+        if reply.strip().startswith("SET_REMINDER:"):
+            try:
+                parts = reply.replace("SET_REMINDER:", "").strip().split("|", 1)
+                seconds = int(parts[0].strip())
+                task = parts[1].strip()
+                remind_time = int(time.time()) + seconds
+                add_reminder(sender, task, remind_time)
+
+                mins = seconds // 60
+                hours = mins // 60
+                if hours > 0:
+                    time_display = f"{hours} hour(s)"
+                elif mins > 0:
+                    time_display = f"{mins} minute(s)"
+                else:
+                    time_display = f"{seconds} seconds"
+
+                return jsonify({
+                    "reply": f"⏰ *Reminder Set!*\n\nI will message you in *{time_display}* to:\n_{task}_"
+                })
+            except Exception as e:
+                print(f"[REMINDER PARSE ERROR] {e}")
+
+        # ── Proxy messaging trigger
+        if reply.strip().startswith("SEND_MESSAGE_TO:"):
+            try:
+                parts = reply.replace("SEND_MESSAGE_TO:", "").strip().split("|", 1)
+                raw_recip = parts[0].strip()
+                msg_body = parts[1].strip()
+
+                clean_num = re.sub(r'[^0-9]', '', raw_recip)
+                if clean_num.startswith('0') and len(clean_num) == 11:
+                    clean_num = '234' + clean_num[1:]
+
+                if len(clean_num) >= 10:
+                    target_jid = f"{clean_num}@s.whatsapp.net"
+                    sender_label = name or "Someone"
+                    forward_text = f"📩 *Message from {sender_label}:*\n\n{msg_body}\n\n_Sent via MAX∞_"
+
+                    requests.post(
+                        f"{BAILEYS_URL}/send",
+                        json={"to": target_jid, "message": forward_text},
+                        timeout=10
+                    )
+                    return jsonify({
+                        "reply": f"✅ *Message delivered to {raw_recip}!*"
+                    })
+                else:
+                    return jsonify({
+                        "reply": f"Couldn't send the message — {raw_recip} doesn't look like a valid phone number."
+                    })
+            except Exception as e:
+                print(f"[PROXY MSG ERROR] {e}")
+                return jsonify({"reply": "I couldn't deliver that message right now. Check the phone number and try again."})
 
         full = (pitch + "\n\n" + reply) if pitch else reply
         return jsonify({"reply": full})

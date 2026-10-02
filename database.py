@@ -41,6 +41,17 @@ def init_db():
         )
     """)
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender      TEXT NOT NULL,
+            task        TEXT NOT NULL,
+            remind_time INTEGER NOT NULL,
+            created_at  TEXT NOT NULL,
+            is_sent     INTEGER DEFAULT 0
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -250,3 +261,30 @@ def get_daily_message_stats(days=14):
     """, (days,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def add_reminder(sender, task, remind_time):
+    now_str = str(date.today())
+    conn = _get_conn()
+    conn.execute("""
+        INSERT INTO reminders (sender, task, remind_time, created_at, is_sent)
+        VALUES (?, ?, ?, ?, 0)
+    """, (sender, task, int(remind_time), now_str))
+    conn.commit()
+    conn.close()
+
+
+def get_due_reminders(current_time):
+    conn = _get_conn()
+    rows = conn.execute("""
+        SELECT * FROM reminders WHERE is_sent = 0 AND remind_time <= ?
+    """, (int(current_time),)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_reminder_sent(reminder_id):
+    conn = _get_conn()
+    conn.execute("UPDATE reminders SET is_sent = 1 WHERE id = ?", (int(reminder_id),))
+    conn.commit()
+    conn.close()

@@ -15,15 +15,25 @@ const server = http.createServer(async (req, res) => {
         req.on('data', chunk => body += chunk)
         req.on('end', async () => {
             try {
-                const { to, message } = JSON.parse(body)
-                if (sock && to && message) {
-                    await sock.sendMessage(to, { text: message })
-                    res.writeHead(200)
-                    res.end('ok')
-                } else {
+                const { to, message, type, audio_bytes, image_bytes, sticker_bytes } = JSON.parse(body)
+                if (!sock || !to) {
                     res.writeHead(400)
-                    res.end('missing fields or not connected')
+                    return res.end('missing target or not connected')
                 }
+                if (type === 'audio' && audio_bytes) {
+                    const audioBuf = Buffer.from(audio_bytes, 'base64')
+                    await sock.sendMessage(to, { audio: audioBuf, mimetype: 'audio/mp4', ptt: true })
+                } else if (type === 'sticker' && sticker_bytes) {
+                    const stickerBuf = Buffer.from(sticker_bytes, 'base64')
+                    await sock.sendMessage(to, { sticker: stickerBuf })
+                } else if (type === 'image' && image_bytes) {
+                    const imgBuf = Buffer.from(image_bytes, 'base64')
+                    await sock.sendMessage(to, { image: imgBuf, caption: message || '' })
+                } else if (message) {
+                    await sock.sendMessage(to, { text: message })
+                }
+                res.writeHead(200)
+                res.end('ok')
             } catch (e) {
                 res.writeHead(500)
                 res.end(e.message)
@@ -194,7 +204,26 @@ async function startBot() {
                 const res    = await axios.post(FLASK_URL, payload, { timeout: 120000 })
                 const result = res.data
 
-                if (result.type === 'image' && result.image_bytes) {
+                if (result.type === 'audio' && result.audio_bytes) {
+                    const audioBuf = Buffer.from(result.audio_bytes, 'base64')
+                    await sock.sendMessage(chatId, {
+                        audio: audioBuf,
+                        mimetype: 'audio/mp4',
+                        ptt: true
+                    })
+                    if (result.caption) {
+                        await sock.sendMessage(chatId, { text: result.caption })
+                    }
+                    console.log('[SEND] voice note audio sent')
+
+                } else if (result.type === 'sticker' && result.sticker_bytes) {
+                    const stickerBuf = Buffer.from(result.sticker_bytes, 'base64')
+                    await sock.sendMessage(chatId, {
+                        sticker: stickerBuf
+                    })
+                    console.log('[SEND] sticker sent')
+
+                } else if (result.type === 'image' && result.image_bytes) {
                     const imgBuf = Buffer.from(result.image_bytes, 'base64')
                     await sock.sendMessage(chatId, {
                         image:   imgBuf,
