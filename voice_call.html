@@ -169,38 +169,119 @@
             max-width: 280px;
         }
 
-        /* Live Dialogue Preview */
-        .dialogue-box {
+        /* Live Transcript Feed */
+        .transcript-wrapper {
             position: relative;
             z-index: 10;
             width: 100%;
-            max-width: 420px;
-            min-height: 80px;
-            background: rgba(17, 24, 39, 0.65);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 20px;
-            padding: 16px 20px;
-            backdrop-filter: blur(16px);
-            margin-bottom: 24px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            transition: all 0.3s ease;
+            max-width: 440px;
+            margin-bottom: 20px;
         }
 
-        .dialogue-label {
+        .transcript-header {
             font-size: 11px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 1px;
-            color: #10b981;
-            margin-bottom: 4px;
+            color: #9ca3af;
+            margin-bottom: 6px;
+            padding-left: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
 
-        .dialogue-text {
-            font-size: 15px;
+        .transcript-container {
+            width: 100%;
+            height: 160px;
+            max-height: 160px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scroll-behavior: smooth;
+            background: rgba(17, 24, 39, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 18px;
+            padding: 12px 14px;
+            backdrop-filter: blur(16px);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Custom scrollbar */
+        .transcript-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        .transcript-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 10px;
+        }
+        .transcript-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.25);
+            border-radius: 10px;
+        }
+        .transcript-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        /* Message bubbles */
+        .msg-bubble {
+            display: flex;
+            flex-direction: column;
+            max-width: 88%;
+            padding: 8px 12px;
+            border-radius: 14px;
+            animation: fadeSlideUp 0.25s ease-out forwards;
+        }
+
+        @keyframes fadeSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .msg-bubble.user {
+            align-self: flex-end;
+            background: rgba(59, 130, 246, 0.22);
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            text-align: right;
+        }
+
+        .msg-bubble.user .sender-tag {
+            color: #60a5fa;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+
+        .msg-bubble.ai {
+            align-self: flex-start;
+            background: rgba(16, 185, 129, 0.18);
+            border: 1px solid rgba(16, 185, 129, 0.35);
+            text-align: left;
+        }
+
+        .msg-bubble.ai .sender-tag {
+            color: #34d399;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+
+        .bubble-text {
+            font-size: 14px;
             line-height: 1.45;
-            color: #e5e7eb;
+            color: #f3f4f6;
+            word-break: break-word;
         }
 
         /* Controls */
@@ -278,9 +359,17 @@
         <div class="status-sub" id="statusSub">Talk to MAX naturally or ask any question</div>
     </div>
 
-    <div class="dialogue-box">
-        <div class="dialogue-label" id="dialogueLabel">MAX</div>
-        <div class="dialogue-text" id="dialogueText">"Hey! I'm here. What's on your mind today?"</div>
+    <div class="transcript-wrapper">
+        <div class="transcript-header">
+            <span>Live Transcript</span>
+            <span style="font-size: 10px; color: #6b7280;">Auto-scroll</span>
+        </div>
+        <div class="transcript-container" id="transcriptContainer">
+            <div class="msg-bubble ai">
+                <div class="sender-tag">MAX</div>
+                <div class="bubble-text">Hey! I'm here. What's on your mind today?</div>
+            </div>
+        </div>
     </div>
 
     <div>
@@ -308,11 +397,34 @@
         const glow = document.getElementById('ambientGlow');
         const statusText = document.getElementById('statusText');
         const statusSub = document.getElementById('statusSub');
-        const dialogueLabel = document.getElementById('dialogueLabel');
-        const dialogueText = document.getElementById('dialogueText');
+        const transcriptContainer = document.getElementById('transcriptContainer');
         const callTimer = document.getElementById('callTimer');
         const micBtn = document.getElementById('micBtn');
         const audioPlayer = document.getElementById('audioPlayer');
+
+        function appendMessage(senderName, text) {
+            if (!text || !text.trim()) return;
+            const bubble = document.createElement('div');
+            const isUser = senderName === 'YOU';
+            bubble.className = `msg-bubble ${isUser ? 'user' : 'ai'}`;
+
+            const tag = document.createElement('div');
+            tag.className = 'sender-tag';
+            tag.innerText = senderName;
+
+            const body = document.createElement('div');
+            body.className = 'bubble-text';
+            body.innerText = text;
+
+            bubble.appendChild(tag);
+            bubble.appendChild(body);
+            transcriptContainer.appendChild(bubble);
+
+            // Auto-scroll to bottom smoothly
+            setTimeout(() => {
+                transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+            }, 50);
+        }
 
         // State
         let isMuted = false;
@@ -452,19 +564,15 @@
 
                 const data = await res.json();
                 
-                // Display transcripts
+                // Append transcripts to scrollable feed
                 if (data.user_text) {
-                    dialogueLabel.innerText = "YOU";
-                    dialogueLabel.style.color = "#3b82f6";
-                    dialogueText.innerText = `"${data.user_text}"`;
+                    appendMessage("YOU", data.user_text);
                 }
 
                 if (data.ai_text) {
                     setTimeout(() => {
-                        dialogueLabel.innerText = "MAX";
-                        dialogueLabel.style.color = "#10b981";
-                        dialogueText.innerText = `"${data.ai_text}"`;
-                    }, 400);
+                        appendMessage("MAX", data.ai_text);
+                    }, 350);
                 }
 
                 // Play AI speech
