@@ -138,6 +138,28 @@ async function startBot() {
         }
     })
 
+    // ── Incoming Call Handler ──────────────────────────────────────────────────
+    sock.ev.on('call', async (calls) => {
+        for (const call of calls) {
+            if (call.status === 'offer') {
+                console.log(`[CALL] Incoming call from ${call.from} id=${call.id}`)
+                try {
+                    await sock.rejectCall(call.id, call.from)
+
+                    const caller = call.from.split(':')[0].split('@')[0] + '@s.whatsapp.net'
+                    const callUrl = `https://max-flask.onrender.com/call?user=${encodeURIComponent(caller)}`
+
+                    await sock.sendMessage(call.from, {
+                        text: `Hey! 👋 I can't take direct audio calls inside WhatsApp yet, but we can talk live right now! 🎙️✨\n\nTap here to start a live voice call with me:\n👉 ${callUrl}\n\n_(Microphone opens in your browser — talk to me just like a phone call!)_`
+                    })
+                    console.log(`[CALL] Rejected call & sent live call link to ${call.from}`)
+                } catch (err) {
+                    console.error('[CALL ERROR]', err.message)
+                }
+            }
+        }
+    })
+
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return
 

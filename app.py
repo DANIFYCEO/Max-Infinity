@@ -848,12 +848,69 @@ def message():
                 print(f"[PROXY MSG ERROR] {e}")
                 return jsonify({"reply": "I couldn't deliver that message right now. Check the phone number and try again."})
 
+        # ── Call link intent
+        call_triggers = ["call me", "can we call", "can i call", "voice call", "call link", "let's call", "lets call", "start a call"]
+        if any(t in lower_text for t in call_triggers):
+            call_url = f"https://max-flask.onrender.com/call?user={requests.utils.quote(sender)}"
+            return jsonify({
+                "reply": f"I'd love to speak with you! 🎙️✨\n\nTap here to start a live voice call with me right now:\n👉 {call_url}\n\n_(Microphone opens in your browser — talk to me just like a phone call!)_"
+            })
+
         full = (pitch + "\n\n" + reply) if pitch else reply
         return jsonify({"reply": full})
 
     except Exception as e:
         print(f"[MESSAGE ERROR] {e}")
         return jsonify({"reply": "Something went wrong on my end. Try again."})
+
+
+# ── LIVE VOICE CALL ROUTES ────────────────────────────────────────────────────
+
+@app.route("/call")
+def voice_call_page():
+    try:
+        with open("voice_call.html", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html; charset=utf-8"}
+    except Exception as e:
+        return f"Error loading voice call page: {e}", 500
+
+@app.route("/api/voice-call", methods=["POST"])
+def api_voice_call():
+    try:
+        sender = request.form.get("sender", "voice_caller")
+        audio_file = request.files.get("audio")
+        if not audio_file:
+            return jsonify({"error": "No audio provided"}), 400
+
+        audio_bytes = audio_file.read()
+        if not audio_bytes or len(audio_bytes) < 100:
+            return jsonify({"error": "Audio empty"}), 400
+
+        # 1. Transcribe with Whisper
+        user_text = transcribe_audio(audio_bytes)
+        if not user_text:
+            return jsonify({"error": "Could not understand audio"}), 400
+
+        print(f"[VOICE CALL] user={sender} text={user_text}")
+
+        # 2. Get conversational AI response
+        call_prompt = f"(Live Phone Call Mode: Respond in 1 or 2 concise, friendly spoken sentences): {user_text}"
+        ai_reply = get_ai_response(sender, call_prompt)
+        clean_reply = re.sub(r'^[A-Z_]+:\s*', '', ai_reply).strip()
+
+        # 3. Generate voice reply
+        audio_data = generate_voice_reply(clean_reply)
+        if not audio_data:
+            return jsonify({"error": "TTS failed"}), 500
+
+        return jsonify({
+            "user_text": user_text,
+            "ai_text": clean_reply,
+            "audio_b64": base64.b64encode(audio_data).decode()
+        })
+    except Exception as e:
+        print(f"[VOICE CALL API ERROR] {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # ── ADMIN ROUTES ──────────────────────────────────────────────────────────────

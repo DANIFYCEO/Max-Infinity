@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MAX∞ Live Voice Call</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: radial-gradient(circle at 50% 20%, #111827 0%, #030712 100%);
+            color: #f9fafb;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding: 24px 20px 40px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Ambient glowing background */
+        .ambient-glow {
+            position: absolute;
+            top: 25%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 320px;
+            height: 320px;
+            background: radial-gradient(circle, rgba(16, 185, 129, 0.25) 0%, rgba(59, 130, 246, 0.15) 50%, transparent 70%);
+            filter: blur(60px);
+            z-index: 0;
+            pointer-events: none;
+            transition: all 0.5s ease;
+        }
+
+        .ambient-glow.speaking {
+            background: radial-gradient(circle, rgba(139, 92, 246, 0.35) 0%, rgba(236, 72, 153, 0.2) 60%, transparent 70%);
+            width: 400px;
+            height: 400px;
+        }
+
+        /* Header */
+        header {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #9ca3af;
+            backdrop-filter: blur(10px);
+        }
+
+        .brand span {
+            color: #10b981;
+            font-weight: 800;
+        }
+
+        .call-timer {
+            font-size: 15px;
+            color: #6b7280;
+            margin-top: 10px;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.5px;
+        }
+
+        /* Orb Center Visualizer */
+        .orb-container {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: auto 0;
+        }
+
+        .orb {
+            width: 170px;
+            height: 170px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%, #34d399 0%, #059669 45%, #064e3b 100%);
+            box-shadow: 0 0 50px rgba(16, 185, 129, 0.4), inset 0 0 25px rgba(255, 255, 255, 0.4);
+            position: relative;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+
+        .orb::after {
+            content: '';
+            position: absolute;
+            inset: -8px;
+            border-radius: 50%;
+            border: 2px dashed rgba(52, 211, 153, 0.4);
+            animation: rotate 20s linear infinite;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .orb.listening {
+            animation: pulse-green 1.8s ease-in-out infinite;
+        }
+
+        .orb.thinking {
+            background: radial-gradient(circle at 35% 35%, #fbbf24 0%, #d97706 45%, #78350f 100%);
+            box-shadow: 0 0 50px rgba(245, 158, 11, 0.4), inset 0 0 25px rgba(255, 255, 255, 0.4);
+            animation: pulse-yellow 1.2s ease-in-out infinite;
+        }
+
+        .orb.speaking {
+            background: radial-gradient(circle at 35% 35%, #a78bfa 0%, #7c3aed 45%, #4c1d95 100%);
+            box-shadow: 0 0 60px rgba(139, 92, 246, 0.6), inset 0 0 30px rgba(255, 255, 255, 0.5);
+            animation: pulse-purple 1.4s ease-in-out infinite;
+        }
+
+        @keyframes pulse-green {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 40px rgba(16, 185, 129, 0.4); }
+            50% { transform: scale(1.08); box-shadow: 0 0 70px rgba(16, 185, 129, 0.7); }
+        }
+
+        @keyframes pulse-yellow {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); box-shadow: 0 0 65px rgba(245, 158, 11, 0.7); }
+        }
+
+        @keyframes pulse-purple {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 50px rgba(139, 92, 246, 0.5); }
+            50% { transform: scale(1.12); box-shadow: 0 0 85px rgba(139, 92, 246, 0.85); }
+        }
+
+        .status-text {
+            margin-top: 28px;
+            font-size: 19px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+            color: #f3f4f6;
+            text-align: center;
+        }
+
+        .status-sub {
+            margin-top: 6px;
+            font-size: 13px;
+            color: #9ca3af;
+            text-align: center;
+            max-width: 280px;
+        }
+
+        /* Live Dialogue Preview */
+        .dialogue-box {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            max-width: 420px;
+            min-height: 80px;
+            background: rgba(17, 24, 39, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 16px 20px;
+            backdrop-filter: blur(16px);
+            margin-bottom: 24px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .dialogue-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #10b981;
+            margin-bottom: 4px;
+        }
+
+        .dialogue-text {
+            font-size: 15px;
+            line-height: 1.45;
+            color: #e5e7eb;
+        }
+
+        /* Controls */
+        .controls {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            max-width: 320px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+        }
+
+        .control-btn {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            font-size: 22px;
+        }
+
+        .control-btn:active {
+            transform: scale(0.92);
+        }
+
+        .btn-mic {
+            background: rgba(255, 255, 255, 0.1);
+            color: #f9fafb;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-mic.muted {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+
+        .btn-end {
+            background: #ef4444;
+            color: white;
+            box-shadow: 0 4px 20px rgba(239, 68, 68, 0.45);
+        }
+
+        .btn-end:hover {
+            background: #dc2626;
+        }
+
+        .hint {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 14px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="ambient-glow" id="ambientGlow"></div>
+
+    <header>
+        <div class="brand">
+            <span>MAX∞</span> Live Voice
+        </div>
+        <div class="call-timer" id="callTimer">00:00</div>
+    </header>
+
+    <div class="orb-container">
+        <div class="orb listening" id="voiceOrb" onclick="toggleMute()"></div>
+        <div class="status-text" id="statusText">Listening...</div>
+        <div class="status-sub" id="statusSub">Talk to MAX naturally or ask any question</div>
+    </div>
+
+    <div class="dialogue-box">
+        <div class="dialogue-label" id="dialogueLabel">MAX</div>
+        <div class="dialogue-text" id="dialogueText">"Hey! I'm here. What's on your mind today?"</div>
+    </div>
+
+    <div>
+        <div class="controls">
+            <button class="control-btn btn-mic" id="micBtn" onclick="toggleMute()" title="Mute/Unmute">
+                🎙️
+            </button>
+            <button class="control-btn btn-end" onclick="endCall()" title="End Call">
+                📞
+            </button>
+        </div>
+        <div class="hint">Tap red button to return to WhatsApp</div>
+    </div>
+
+    <!-- Hidden audio element for AI speech playback -->
+    <audio id="audioPlayer" playsinline></audio>
+
+    <script>
+        // Parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const sender = urlParams.get('user') || 'anonymous_user';
+
+        // Elements
+        const orb = document.getElementById('voiceOrb');
+        const glow = document.getElementById('ambientGlow');
+        const statusText = document.getElementById('statusText');
+        const statusSub = document.getElementById('statusSub');
+        const dialogueLabel = document.getElementById('dialogueLabel');
+        const dialogueText = document.getElementById('dialogueText');
+        const callTimer = document.getElementById('callTimer');
+        const micBtn = document.getElementById('micBtn');
+        const audioPlayer = document.getElementById('audioPlayer');
+
+        // State
+        let isMuted = false;
+        let isProcessing = false;
+        let callSeconds = 0;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let silenceTimer = null;
+        let audioContext = null;
+        let analyser = null;
+        let isSpeaking = false;
+
+        // Call Timer
+        setInterval(() => {
+            callSeconds++;
+            const mins = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+            const secs = String(callSeconds % 60).padStart(2, '0');
+            callTimer.innerText = `${mins}:${secs}`;
+        }, 1000);
+
+        // State visualizer helpers
+        function setListening() {
+            orb.className = 'orb listening';
+            glow.className = 'ambient-glow';
+            statusText.innerText = isMuted ? 'Microphone Muted' : 'Listening...';
+            statusSub.innerText = isMuted ? 'Tap mic to unmute' : 'Speak naturally, I am listening';
+        }
+
+        function setThinking() {
+            orb.className = 'orb thinking';
+            glow.className = 'ambient-glow';
+            statusText.innerText = 'MAX is thinking...';
+            statusSub.innerText = 'Processing your voice';
+        }
+
+        function setSpeaking() {
+            orb.className = 'orb speaking';
+            glow.className = 'ambient-glow speaking';
+            statusText.innerText = 'MAX is speaking...';
+            statusSub.innerText = 'Tap orb or mic to interrupt';
+        }
+
+        // Initialize Microphone & Continuous Speech Detection
+        async function initVoiceCall() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 512;
+                source.connect(analyser);
+
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    if (audioChunks.length === 0 || isMuted) return;
+                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                    audioChunks = [];
+                    await sendVoiceToBackend(blob);
+                };
+
+                startListeningLoop();
+                monitorAudioLevels();
+
+            } catch (err) {
+                console.error('Microphone error:', err);
+                statusText.innerText = 'Microphone Blocked';
+                statusSub.innerText = 'Please allow microphone access in your browser settings.';
+            }
+        }
+
+        // Monitor speech vs silence to automatically send voice when user pauses
+        function monitorAudioLevels() {
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            function checkLevel() {
+                if (isProcessing || audioPlayer.paused === false || isMuted) {
+                    requestAnimationFrame(checkLevel);
+                    return;
+                }
+
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+                const avg = sum / dataArray.length;
+
+                // Threshold for detecting voice activity
+                if (avg > 15) {
+                    if (!isSpeaking) {
+                        isSpeaking = true;
+                        if (mediaRecorder && mediaRecorder.state === 'inactive') {
+                            audioChunks = [];
+                            mediaRecorder.start();
+                        }
+                    }
+                    clearTimeout(silenceTimer);
+                    silenceTimer = setTimeout(() => {
+                        // User has stopped speaking for 1.3 seconds
+                        if (isSpeaking && mediaRecorder && mediaRecorder.state === 'recording') {
+                            isSpeaking = false;
+                            mediaRecorder.stop();
+                        }
+                    }, 1300);
+                }
+
+                requestAnimationFrame(checkLevel);
+            }
+
+            checkLevel();
+        }
+
+        function startListeningLoop() {
+            setListening();
+        }
+
+        // Send recorded user speech to Flask
+        async function sendVoiceToBackend(blob) {
+            if (isProcessing) return;
+            isProcessing = true;
+            setThinking();
+
+            try {
+                const formData = new FormData();
+                formData.append('audio', blob, 'user_voice.webm');
+                formData.append('sender', sender);
+
+                const res = await fetch('/api/voice-call', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!res.ok) throw new Error('Server error');
+
+                const data = await res.json();
+                
+                // Display transcripts
+                if (data.user_text) {
+                    dialogueLabel.innerText = "YOU";
+                    dialogueLabel.style.color = "#3b82f6";
+                    dialogueText.innerText = `"${data.user_text}"`;
+                }
+
+                if (data.ai_text) {
+                    setTimeout(() => {
+                        dialogueLabel.innerText = "MAX";
+                        dialogueLabel.style.color = "#10b981";
+                        dialogueText.innerText = `"${data.ai_text}"`;
+                    }, 400);
+                }
+
+                // Play AI speech
+                if (data.audio_b64) {
+                    setSpeaking();
+                    const mime = data.audio_b64.startsWith('T2dnUw') ? 'audio/ogg' : 'audio/mp3';
+                    audioPlayer.src = `data:${mime};base64,${data.audio_b64}`;
+                    await audioPlayer.play();
+                    audioPlayer.onended = () => {
+                        isProcessing = false;
+                        setListening();
+                    };
+                } else {
+                    isProcessing = false;
+                    setListening();
+                }
+
+            } catch (err) {
+                console.error('[CALL ERROR]', err);
+                isProcessing = false;
+                setListening();
+            }
+        }
+
+        // Mute toggle
+        function toggleMute() {
+            isMuted = !isMuted;
+            if (isMuted) {
+                micBtn.classList.add('muted');
+                micBtn.innerText = '🔇';
+                statusText.innerText = 'Microphone Muted';
+                statusSub.innerText = 'Tap mic icon to resume talking';
+            } else {
+                micBtn.classList.remove('muted');
+                micBtn.innerText = '🎙️';
+                setListening();
+            }
+        }
+
+        // End Call
+        function endCall() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+            if (audioPlayer) {
+                audioPlayer.pause();
+            }
+            window.location.href = 'https://wa.me/2347042650401';
+        }
+
+        // Start call on load
+        window.addEventListener('DOMContentLoaded', () => {
+            initVoiceCall();
+        });
+    </script>
+</body>
+</html>
