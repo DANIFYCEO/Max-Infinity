@@ -28,7 +28,15 @@ from database import (
     save_document, load_document,
     save_lead, get_user, get_all_senders,
     get_stats, get_recent_leads, get_recent_users, get_daily_message_stats,
-    add_reminder, get_due_reminders, mark_reminder_sent
+    add_reminder, get_due_reminders, mark_reminder_sent,
+    get_tenant, get_all_tenants, get_tenant_config, update_tenant, update_tenant_config,
+    create_tenant, get_tenant_user, ensure_tenant_user, tick_tenant_message,
+    update_tenant_user, add_tenant_memory, get_tenant_memory,
+    save_tenant_conversation, load_tenant_conversation,
+    save_tenant_document, load_tenant_document,
+    add_tenant_reminder, get_due_tenant_reminders, mark_tenant_reminder_sent,
+    save_tenant_lead, get_tenant_leads, get_fleet_stats,
+    is_vip_copilot_user, set_user_vip_status
 )
 
 load_dotenv()
@@ -79,6 +87,7 @@ def reminder_worker():
     while True:
         try:
             now = int(time.time())
+            # 1. Legacy reminders
             due = get_due_reminders(now)
             for r in due:
                 sender = r["sender"]
@@ -91,12 +100,41 @@ def reminder_worker():
                     timeout=10
                 )
                 mark_reminder_sent(r_id)
+
+            # 2. Multi-tenant reminders
+            tenant_due = get_due_tenant_reminders(now)
+            for r in tenant_due:
+                t_id = r["tenant_id"]
+                sender = r["sender"]
+                task = r["task"]
+                r_id = r["id"]
+                print(f"[TENANT REMINDER DUE] Tenant {t_id}: reminder #{r_id} to {sender}")
+                send_url = f"{BAILEYS_URL}/sessions/{t_id}/send" if t_id != "main" else f"{BAILEYS_URL}/send"
+                requests.post(
+                    send_url,
+                    json={"to": sender, "message": f"⏰ *REMINDER:*\n\n{task}"},
+                    timeout=10
+                )
+                mark_tenant_reminder_sent(r_id)
+
         except Exception as e:
             print(f"[REMINDER WORKER ERROR] {e}")
         time.sleep(15)
 
 import threading
 threading.Thread(target=reminder_worker, daemon=True).start()
+
+# ── DANIEL EXECUTIVE PROMPT (VIP Partition on MAX) ───────────────────────────
+
+DANIEL_EXECUTIVE_PROMPT = """You are Daniel's private, sharp executive AI assistant.
+Daniel (D.TRINO) is an executive and builder.
+
+YOUR RESPONSIBILITIES:
+- Be his personal Chief of Staff and co-pilot.
+- When Daniel forwards long chats, voice transcripts, or documents, summarize them into 3 clear, actionable bullet points.
+- When Daniel asks you to set an alarm or reminder to chat or reply to someone, calculate the delay and set a reminder.
+- Help him draft sharp, professional replies so he can respond to people quickly and effectively.
+- Speak directly, concisely, and respectfully. No fluff."""
 
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
 
@@ -560,10 +598,25 @@ MEMORY_TRIGGERS = [
 ]
 
 
-def get_ai_response(sender: str, message: str) -> str:
-    history  = load_conversation(sender)
-    memory   = get_memory(sender)
-    document = load_document(sender)
+def get_tenant_ai_response(tenant_id: str, sender: str, message: str) -> tuple[str, list]:
+    """
+    Generate AI response scoped to tenant_id.
+    Returns (reply_text, guide_images_list)
+    where guide_images_list is [{"image_bytes": base64_str, "caption": str}, ...]
+    """
+    history  = load_tenant_conversation(tenant_id, sender)
+    memory   = get_tenant_memory(tenant_id, sender)
+    document = load_tenant_document(tenant_id, sender)
+
+    is_vip = (tenant_id == "main" and is_vip_copilot_user(sender))
+
+    if is_vip:
+        system_base = DANIEL_EXECUTIVE_PROMPT
+    elif tenant_id == "main":
+        system_base = SYSTEM_PROMPT
+    else:
+        cfg = get_tenant_config(tenant_id)
+        system_base = cfg["system_prompt"] if cfg else SYSTEM_PROMPT
 
     # ── URL link reading capability
     url_match = URL_REGEX.search(message)
@@ -578,9 +631,11 @@ def get_ai_response(sender: str, message: str) -> str:
     memory_ctx = ("\n\nWhat you know about this user:\n" + "\n".join(memory)) if memory else ""
     doc_ctx    = (f"\n\nUser shared a document. Content:\n\n{document}") if document else ""
 
-    system_msg = SYSTEM_PROMPT + memory_ctx + doc_ctx + url_ctx
+    system_msg = system_base + memory_ctx + doc_ctx + url_ctx
     messages   = [{"role": "system", "content": system_msg}] + history
     messages.append({"role": "user", "content": message})
+
+    guide_images = []
 
     try:
         reply = call_groq_chat(messages, max_tokens=1500)
@@ -591,7 +646,7 @@ def get_ai_response(sender: str, message: str) -> str:
             nigerian_triggers = ["dollar", "exchange rate", "naira", "fuel price", "jamb", "waec", "neco"]
             if any(t in query.lower() for t in nigerian_triggers):
                 query = query + " Nigeria 2026"
-            print(f"[SEARCH] {query}")
+            print(f"[SEARCH] [{tenant_id}] {query}")
             search_ctx = web_search(query)
             if search_ctx:
                 messages.append({"role": "assistant", "content": reply})
@@ -600,42 +655,194 @@ def get_ai_response(sender: str, message: str) -> str:
             else:
                 reply = "I tried searching for that but couldn't get results right now. Try again in a moment."
 
+        # ── Campos Guide Images Triggers (From Divine Campos documents)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        campos_dir = os.path.join(base_dir, 'assets', 'tenants', 'campos')
+
+        # 1. Download Materials Walkthrough (4 Steps)
+        if "GUIDE_IMAGE: download_materials" in reply or (tenant_id == "campos" and any(k in message.lower() for k in ["download material", "get note", "search material", "past question", "past questions", "lecture note"])):
+            reply = reply.replace("GUIDE_IMAGE: download_materials", "").strip()
+            dl_dir = os.path.join(campos_dir, 'download_materials')
+            steps = [
+                ("step1_home_search.jpg", "📱 *Step 1:* On Home screen, tap the search bar *'Search over 5000 materials'* to enter the Materials Bank."),
+                ("step2_filter_icon.jpg", "🔍 *Step 2:* In the Materials Bank, tap the filter icon in the top right corner."),
+                ("step3_select_school_level.jpg", "🎓 *Step 3:* Filter by *'My School'* or your level (100L, 200L, 300L, etc.) to browse past questions & notes."),
+                ("step4_profile_library.jpg", "📚 *Step 4:* Downloaded files appear right inside *'My Library'* in your Profile tab!")
+            ]
+            for fname, cap in steps:
+                fpath = os.path.join(dl_dir, fname)
+                if os.path.exists(fpath):
+                    with open(fpath, "rb") as f:
+                        guide_images.append({
+                            "image_bytes": base64.b64encode(f.read()).decode(),
+                            "caption": cap
+                        })
+
+        # 2. Become a Vendor Walkthrough (2 Steps)
+        elif "GUIDE_IMAGE: become_vendor" in reply or (tenant_id == "campos" and any(k in message.lower() for k in ["become vendor", "become a vendor", "sell on campos", "merchant", "start selling", "how to sell"])):
+            reply = reply.replace("GUIDE_IMAGE: become_vendor", "").strip()
+            v_dir = os.path.join(campos_dir, 'become_vendor')
+            steps = [
+                ("step1_marketplace_vendor_button.jpg", "🛍️ *Step 1:* On the Marketplace screen, tap the floating *'Become a Vendor'* button."),
+                ("step2_start_selling_now.jpg", "🚀 *Step 2:* Review vendor perks and tap *'Start Selling NOW!'* (Currently FREE promo!).")
+            ]
+            for fname, cap in steps:
+                fpath = os.path.join(v_dir, fname)
+                if os.path.exists(fpath):
+                    with open(fpath, "rb") as f:
+                        guide_images.append({
+                            "image_bytes": base64.b64encode(f.read()).decode(),
+                            "caption": cap
+                        })
+
+        # 3. Upload Materials Walkthrough (2 Steps)
+        elif "GUIDE_IMAGE: upload_materials" in reply or (tenant_id == "campos" and any(k in message.lower() for k in ["upload material", "upload document", "upload note", "add to library"])):
+            reply = reply.replace("GUIDE_IMAGE: upload_materials", "").strip()
+            up_dir = os.path.join(campos_dir, 'upload_materials')
+            steps = [
+                ("step1_library_upload_button.jpg", "📤 *Step 1:* In *'My Library'*, tap the black upload arrow button at the bottom right."),
+                ("step2_select_files_form.jpg", "📄 *Step 2:* Select your Document Type, Level, Department, and tap *'Select Files'* to upload.")
+            ]
+            for fname, cap in steps:
+                fpath = os.path.join(up_dir, fname)
+                if os.path.exists(fpath):
+                    with open(fpath, "rb") as f:
+                        guide_images.append({
+                            "image_bytes": base64.b64encode(f.read()).decode(),
+                            "caption": cap
+                        })
+
         history.append({"role": "user",      "content": message})
         history.append({"role": "assistant", "content": reply})
         if len(history) > 20:
             history = history[-20:]
-        save_conversation(sender, history)
+        save_tenant_conversation(tenant_id, sender, history)
 
         if any(t in message.lower() for t in MEMORY_TRIGGERS):
-            add_memory(sender, message)
+            add_tenant_memory(tenant_id, sender, message)
 
-        return reply
+        return reply, guide_images
 
     except Exception as e:
-        print(f"[AI RESPONSE ERROR] {e}")
-        return "I'm having a little trouble right now. Give me a sec and try again."
+        print(f"[AI RESPONSE ERROR] [{tenant_id}] {e}")
+        return "I'm having a little trouble right now. Give me a sec and try again.", []
+
+
+def get_ai_response(sender: str, message: str) -> str:
+    """Legacy wrapper for single-tenant / Meta webhook compatibility."""
+    reply, _ = get_tenant_ai_response("main", sender, message)
+    return reply
 
 # ── /message ENDPOINT ─────────────────────────────────────────────────────────
 
 @app.route("/message", methods=["POST"])
 def message():
     try:
-        data     = request.json
+        data     = request.json or {}
+        tenant_id = data.get("tenant_id", "main")
         sender   = data.get("sender", "")
         msg_type = data.get("type", "text")
         text     = data.get("text", "").strip()
-
         name     = data.get("name", "")
 
-        print(f"[MESSAGE] type={msg_type} from={sender} text={text[:60]}")
+        print(f"[MESSAGE] [{tenant_id}] type={msg_type} from={sender} text={text[:60]}")
 
+        # ── MULTI-TENANT CLIENT BRANCH (Campos, Portal Consult, etc.) ─────────
+        if tenant_id != "main":
+            user, is_new = tick_tenant_message(tenant_id, sender)
+            if name and not user.get("name"):
+                update_tenant_user(tenant_id, sender, name=name)
+
+            if is_new or not user.get("onboarded"):
+                update_tenant_user(tenant_id, sender, onboarded=1)
+                cfg = get_tenant_config(tenant_id)
+                welcome = (cfg.get("welcome_message") if cfg else "") or "Hello! How can I help you today?"
+                return jsonify({"reply": welcome})
+
+            # Check for voice note transcription
+            if msg_type == "audio":
+                audio_bytes = base64.b64decode(data.get("audio_b64", ""))
+                text = transcribe_audio(audio_bytes)
+                if not text:
+                    return jsonify({"reply": "I couldn't make out that voice note. Try typing or sending it again."})
+
+            # Check lead capture (admissions, vendor signups, contacts)
+            phone_pattern = re.compile(r'(\+?234|0)[789]\d{9}')
+            if phone_pattern.search(text) or any(k in text.lower() for k in ["register", "process my", "my jamb", "admission", "vendor", "sell", "apply"]):
+                save_tenant_lead(tenant_id, sender, text)
+
+            # Get tenant AI response (with guide images if triggered)
+            reply, guide_images = get_tenant_ai_response(tenant_id, sender, text)
+
+            # Check reminder trigger
+            if reply.strip().startswith("SET_REMINDER:"):
+                try:
+                    parts = reply.replace("SET_REMINDER:", "").strip().split("|", 1)
+                    seconds = int(parts[0].strip())
+                    task = parts[1].strip()
+                    remind_time = int(time.time()) + seconds
+                    add_tenant_reminder(tenant_id, sender, task, remind_time)
+                    mins = seconds // 60
+                    time_display = f"{mins} minute(s)" if mins > 0 else f"{seconds} seconds"
+                    return jsonify({"reply": f"⏰ *Reminder Set!*\n\nI will message you in *{time_display}* to:\n_{task}_"})
+                except Exception as e:
+                    print(f"[REMINDER PARSE ERROR] {e}")
+
+            resp = {"reply": reply}
+            if guide_images:
+                resp["images"] = guide_images
+            return jsonify(resp)
+
+        # ── CENTRAL MAX BOT (Daniel VIP Check & Normal MAX Users) ─────────────
+        is_vip = is_vip_copilot_user(sender)
         user, is_new = tick_message(sender)
 
         # Save display name if we have it
         if name and not user.get("name"):
             update_user(sender, name=name)
 
-        # ── New user onboarding
+        # VIP users skip marketing prompts and rate limits
+        if is_vip:
+            if msg_type == "audio":
+                audio_bytes = base64.b64decode(data.get("audio_b64", ""))
+                text = transcribe_audio(audio_bytes)
+                if not text:
+                    return jsonify({"reply": "Couldn't make out that audio note. Send it again or type."})
+
+            reply, _ = get_tenant_ai_response("main", sender, text)
+
+            if reply.strip().startswith("SET_REMINDER:"):
+                try:
+                    parts = reply.replace("SET_REMINDER:", "").strip().split("|", 1)
+                    seconds = int(parts[0].strip())
+                    task = parts[1].strip()
+                    remind_time = int(time.time()) + seconds
+                    add_tenant_reminder("main", sender, task, remind_time)
+                    mins = seconds // 60
+                    time_display = f"{mins} minute(s)" if mins > 0 else f"{seconds} seconds"
+                    return jsonify({"reply": f"⏰ *Alarm Scheduled!*\n\nI will ping you in *{time_display}* to:\n_{task}_"})
+                except Exception as e:
+                    print(f"[VIP ALARM ERROR] {e}")
+
+            if reply.strip().startswith("SEND_MESSAGE_TO:"):
+                try:
+                    parts = reply.replace("SEND_MESSAGE_TO:", "").strip().split("|", 1)
+                    raw_recip = parts[0].strip()
+                    msg_body = parts[1].strip()
+                    clean_num = re.sub(r'[^0-9]', '', raw_recip)
+                    if clean_num.startswith('0') and len(clean_num) == 11:
+                        clean_num = '234' + clean_num[1:]
+                    if len(clean_num) >= 10:
+                        target_jid = f"{clean_num}@s.whatsapp.net"
+                        forward_text = f"📩 *Message from Daniel:*\n\n{msg_body}"
+                        requests.post(f"{BAILEYS_URL}/send", json={"to": target_jid, "message": forward_text}, timeout=10)
+                        return jsonify({"reply": f"✅ Delivered message to {raw_recip}!"})
+                except Exception as e:
+                    print(f"[VIP PROXY ERROR] {e}")
+
+            return jsonify({"reply": reply})
+
+        # ── Normal MAX user onboarding
         if is_new or not user.get("onboarded"):
             update_user(sender, onboarded=1)
             notify_joseph(f"👤 *New MAX∞ user!*\nName: {name or 'Unknown'}\nID: {sender}")
@@ -970,6 +1177,154 @@ def admin_broadcast():
         except Exception:
             pass
     return jsonify({"sent": sent, "total": len(senders)})
+
+
+# ── MULTI-TENANT FLEET ADMINISTRATION ─────────────────────────────────────────
+
+@app.route("/admin/fleet")
+def admin_fleet():
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        r = requests.get(f"{BAILEYS_URL}/sessions", timeout=3)
+        baileys_sessions = {s["tenant_id"]: s for s in r.json().get("sessions", [])} if r.status_code == 200 else {}
+    except Exception:
+        baileys_sessions = {}
+
+    fleet = get_fleet_stats()
+    for t in fleet:
+        t_id = t["id"]
+        b_session = baileys_sessions.get(t_id, {})
+        t["connection_status"] = b_session.get("status", "disconnected")
+        t["pairing_code"] = b_session.get("pairing_code")
+        t["has_qr"] = b_session.get("has_qr", False)
+
+    return jsonify({"fleet": fleet})
+
+
+@app.route("/admin/tenants", methods=["GET", "POST"])
+def admin_tenants():
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+
+    if request.method == "POST":
+        data = request.json or {}
+        tenant_id = data.get("id", "").strip().lower().replace(" ", "_")
+        name = data.get("name", "").strip()
+        bot_phone = data.get("bot_phone", "").strip()
+        owner_phone = data.get("owner_phone", "").strip()
+        tenant_type = data.get("tenant_type", "business_bot")
+        prompt = data.get("system_prompt", "").strip()
+        welcome = data.get("welcome_message", "").strip()
+
+        if not tenant_id or not name:
+            return jsonify({"error": "Tenant ID and Name are required"}), 400
+
+        created = create_tenant(tenant_id, name, bot_phone, owner_phone, tenant_type, prompt, welcome)
+        return jsonify({"status": "ok", "tenant": created}), 201
+
+    return jsonify({"tenants": get_all_tenants()})
+
+
+@app.route("/admin/tenants/<tenant_id>", methods=["GET", "POST"])
+def admin_tenant_detail(tenant_id):
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+
+    tenant = get_tenant(tenant_id)
+    if not tenant:
+        return jsonify({"error": "Tenant not found"}), 404
+
+    if request.method == "POST":
+        data = request.json or {}
+        if "name" in data or "bot_phone" in data or "owner_phone" in data or "status" in data:
+            update_tenant(
+                tenant_id,
+                name=data.get("name", tenant["name"]),
+                bot_phone=data.get("bot_phone", tenant["bot_phone"]),
+                owner_phone=data.get("owner_phone", tenant["owner_phone"]),
+                status=data.get("status", tenant["status"])
+            )
+        if "system_prompt" in data or "welcome_message" in data:
+            cfg = get_tenant_config(tenant_id) or {}
+            update_tenant_config(
+                tenant_id,
+                system_prompt=data.get("system_prompt", cfg.get("system_prompt", "")),
+                welcome_message=data.get("welcome_message", cfg.get("welcome_message", ""))
+            )
+        return jsonify({"status": "ok", "tenant": get_tenant(tenant_id), "config": get_tenant_config(tenant_id)})
+
+    return jsonify({"tenant": tenant, "config": get_tenant_config(tenant_id), "leads": get_tenant_leads(tenant_id)})
+
+
+@app.route("/admin/tenants/<tenant_id>/pair", methods=["POST"])
+def admin_tenant_pair(tenant_id):
+    """Trigger 8-digit pairing code generation for this tenant in Baileys."""
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+
+    data = request.json or {}
+    phone = data.get("phone_number")
+    if not phone:
+        t = get_tenant(tenant_id)
+        phone = t.get("bot_phone") if t else None
+
+    if not phone:
+        return jsonify({"error": "Target phone number required"}), 400
+
+    try:
+        r = requests.post(
+            f"{BAILEYS_URL}/sessions/{tenant_id}/pair-code",
+            json={"phone_number": phone},
+            timeout=15
+        )
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/admin/tenants/<tenant_id>/status")
+def admin_tenant_status(tenant_id):
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        r = requests.get(f"{BAILEYS_URL}/sessions/{tenant_id}", timeout=5)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/admin/tenants/<tenant_id>/disconnect", methods=["POST"])
+def admin_tenant_disconnect(tenant_id):
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        r = requests.post(f"{BAILEYS_URL}/sessions/{tenant_id}/disconnect", timeout=5)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/admin/vip", methods=["POST"])
+def admin_set_vip():
+    """Toggle or set VIP copilot status for Daniel (D.TRINO) or other users."""
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    data = request.json or {}
+    sender = data.get("sender")
+    is_vip = int(data.get("is_vip", 1))
+    if not sender:
+        return jsonify({"error": "sender required"}), 400
+
+    clean_sender = sender
+    if not clean_sender.endswith("@s.whatsapp.net"):
+        clean_num = re.sub(r'[^0-9]', '', clean_sender)
+        if clean_num.startswith('0') and len(clean_num) == 11:
+            clean_num = '234' + clean_num[1:]
+        clean_sender = f"{clean_num}@s.whatsapp.net"
+
+    set_user_vip_status("main", clean_sender, is_vip)
+    return jsonify({"status": "ok", "sender": clean_sender, "is_vip": is_vip})
 
 
 # ── ONE-CLICK SERVER UPDATE (For Azure VM / VPS) ──────────────────────────────

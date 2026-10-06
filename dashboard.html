@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MAX Admin</title>
+<title>MAX∞ Multi-Tenant Admin & Fleet Control</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -18,6 +18,10 @@
   --g300:#888;
   --g200:#bbb;
   --g100:#e5e5e5;
+  --green:#10b981;
+  --yellow:#f59e0b;
+  --red:#ef4444;
+  --blue:#3b82f6;
 }
 html{font-size:14px}
 body{
@@ -30,7 +34,7 @@ body{
 
 /* NAV */
 nav{
-  height:52px;
+  height:56px;
   border-bottom:1px solid var(--g600);
   display:flex;
   align-items:center;
@@ -40,32 +44,32 @@ nav{
   background:var(--g900);
 }
 .nav-left{display:flex;align-items:center;gap:20px}
-.wordmark{font-size:15px;font-weight:600;letter-spacing:-0.3px;color:var(--white)}
-.wordmark sup{font-size:9px;font-weight:400;color:var(--g300);letter-spacing:0}
+.wordmark{font-size:16px;font-weight:700;letter-spacing:-0.3px;color:var(--white)}
+.wordmark sup{font-size:10px;font-weight:400;color:var(--g300);letter-spacing:0}
 .nav-tag{
   font-size:10px;
-  font-weight:500;
+  font-weight:600;
   letter-spacing:1.2px;
   text-transform:uppercase;
-  color:var(--g400);
+  color:var(--g300);
   border:1px solid var(--g600);
   padding:3px 8px;
-  border-radius:3px;
+  border-radius:4px;
 }
 .nav-right{display:flex;align-items:center;gap:16px}
 .live-badge{
   display:flex;align-items:center;gap:6px;
-  font-size:11px;
+  font-size:12px;
   font-weight:500;
   letter-spacing:.5px;
   color:var(--g200);
 }
 .live-dot{
-  width:6px;height:6px;border-radius:50%;
-  background:var(--white);
+  width:8px;height:8px;border-radius:50%;
+  background:var(--green);
   animation:blink 2s ease-in-out infinite;
 }
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
 .btn-refresh{
   background:none;
   border:1px solid var(--g600);
@@ -78,19 +82,97 @@ nav{
   transition:border-color .15s,color .15s;
 }
 .btn-refresh:hover{border-color:var(--g300);color:var(--white)}
+.btn-primary{
+  background:var(--white);
+  border:1px solid var(--white);
+  color:var(--black);
+  font-weight:600;
+  font-size:12px;
+  padding:6px 14px;
+  border-radius:4px;
+  cursor:pointer;
+  transition:background .15s;
+}
+.btn-primary:hover{background:var(--g100)}
 
 /* MAIN */
-main{max-width:1160px;margin:0 auto;padding:32px 28px}
+main{max-width:1200px;margin:0 auto;padding:32px 28px}
 
-/* SECTION TITLE */
 .section-label{
-  font-size:10px;
-  font-weight:600;
+  font-size:11px;
+  font-weight:700;
   letter-spacing:1.5px;
   text-transform:uppercase;
-  color:var(--g400);
+  color:var(--g300);
   margin-bottom:14px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
 }
+
+/* FLEET CARDS */
+.fleet-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(360px, 1fr));
+  gap:16px;
+  margin-bottom:32px;
+}
+.tenant-card{
+  background:var(--g800);
+  border:1px solid var(--g600);
+  border-radius:8px;
+  padding:20px;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  position:relative;
+  transition:border-color .2s;
+}
+.tenant-card:hover{border-color:var(--g500)}
+.tenant-head{display:flex;justify-content:space-between;align-items:flex-start}
+.tenant-title{font-size:15px;font-weight:700;color:var(--white)}
+.tenant-phone{font-size:12px;color:var(--g300);margin-top:2px}
+.status-pill{
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.5px;
+  padding:3px 8px;
+  border-radius:12px;
+  display:flex;
+  align-items:center;
+  gap:5px;
+}
+.pill-online{background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3)}
+.pill-pairing{background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid rgba(245,158,11,.3)}
+.pill-offline{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+
+.tenant-stats-row{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  padding:10px 0;
+  border-top:1px solid var(--g700);
+  border-bottom:1px solid var(--g700);
+  font-size:11px;
+}
+.tstat-item{display:flex;flex-direction:column;gap:2px}
+.tstat-lbl{color:var(--g400)}
+.tstat-val{color:var(--white);font-weight:600;font-size:13px}
+
+.tenant-actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn-action{
+  background:var(--g700);
+  border:1px solid var(--g600);
+  color:var(--g100);
+  font-size:11px;
+  font-weight:500;
+  padding:6px 12px;
+  border-radius:4px;
+  cursor:pointer;
+  transition:all .15s;
+}
+.btn-action:hover{background:var(--g600);color:var(--white);border-color:var(--g500)}
+.btn-pair{background:rgba(59,130,246,.15);color:var(--blue);border-color:rgba(59,130,246,.3)}
+.btn-pair:hover{background:rgba(59,130,246,.25);border-color:var(--blue);color:var(--white)}
 
 /* STAT GRID */
 .stat-grid{
@@ -105,8 +187,8 @@ main{max-width:1160px;margin:0 auto;padding:32px 28px}
 }
 .stat{
   background:var(--g800);
-  padding:20px 22px;
-  display:flex;flex-direction:column;gap:6px;
+  padding:18px 20px;
+  display:flex;flex-direction:column;gap:4px;
 }
 .stat-label{
   font-size:11px;
@@ -115,16 +197,15 @@ main{max-width:1160px;margin:0 auto;padding:32px 28px}
   color:var(--g300);
 }
 .stat-val{
-  font-size:28px;
+  font-size:26px;
   font-weight:700;
   letter-spacing:-1px;
   color:var(--white);
   font-variant-numeric:tabular-nums;
 }
-.stat-sub{font-size:11px;color:var(--g400)}
 
 /* TWO COL */
-.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
 
 /* PANEL */
 .panel{
@@ -135,7 +216,7 @@ main{max-width:1160px;margin:0 auto;padding:32px 28px}
 }
 .panel-head{
   display:flex;align-items:center;justify-content:space-between;
-  padding:16px 20px;
+  padding:14px 20px;
   border-bottom:1px solid var(--g600);
 }
 .panel-title{
@@ -151,9 +232,6 @@ main{max-width:1160px;margin:0 auto;padding:32px 28px}
 }
 .panel-body{padding:20px}
 
-/* CHART */
-#chart-canvas{display:block;width:100%;height:140px}
-
 /* TABLE */
 .tbl{width:100%;border-collapse:collapse}
 .tbl th{
@@ -163,11 +241,11 @@ main{max-width:1160px;margin:0 auto;padding:32px 28px}
   letter-spacing:1px;
   text-transform:uppercase;
   color:var(--g400);
-  padding:10px 20px;
+  padding:10px 18px;
   border-bottom:1px solid var(--g700);
 }
 .tbl td{
-  padding:11px 20px;
+  padding:11px 18px;
   font-size:12px;
   color:var(--g200);
   border-bottom:1px solid var(--g700);
@@ -178,99 +256,78 @@ main{max-width:1160px;margin:0 auto;padding:32px 28px}
 .tbl .num{color:var(--white);font-weight:600}
 .tbl .dim{color:var(--g400)}
 
-/* BADGES */
-.badge{
-  display:inline-block;
-  font-size:10px;
-  font-weight:600;
-  letter-spacing:.5px;
-  text-transform:uppercase;
-  padding:2px 7px;
-  border-radius:3px;
-}
-.badge-pro{background:var(--white);color:var(--black)}
-.badge-free{background:var(--g700);color:var(--g300)}
-
-/* BROADCAST */
+/* BROADCAST & INPUTS */
 .broadcast-wrap{display:flex;flex-direction:column;gap:10px}
-textarea{
-  background:var(--g700);
+textarea, input[type="text"]{
+  width:100%;
+  background:var(--g900);
   border:1px solid var(--g600);
-  border-radius:6px;
   color:var(--white);
-  font-size:13px;
   font-family:inherit;
-  padding:12px 14px;
+  font-size:12px;
+  border-radius:4px;
+  padding:10px 12px;
   resize:vertical;
-  min-height:110px;
   outline:none;
-  width:100%;
-  transition:border-color .15s;
 }
-textarea::placeholder{color:var(--g400)}
-textarea:focus{border-color:var(--g300)}
+textarea:focus, input[type="text"]:focus{border-color:var(--g300)}
 .btn-broadcast{
-  width:100%;
   background:var(--white);
   color:var(--black);
   border:none;
-  border-radius:6px;
-  padding:11px;
-  font-size:13px;
+  padding:8px 16px;
+  border-radius:4px;
+  font-size:12px;
   font-weight:600;
-  font-family:inherit;
   cursor:pointer;
-  letter-spacing:.2px;
-  transition:background .15s;
 }
-.btn-broadcast:hover{background:var(--g100)}
-.btn-broadcast:disabled{background:var(--g600);color:var(--g400);cursor:not-allowed}
-.bc-msg{
-  font-size:12px;
-  padding:9px 12px;
-  border-radius:5px;
+
+/* MODAL */
+.modal-overlay{
   display:none;
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  background:rgba(0,0,0,.75);
+  backdrop-filter:blur(4px);
+  z-index:999;
+  align-items:center;
+  justify-content:center;
 }
-.bc-ok{background:var(--g700);color:var(--g100);border:1px solid var(--g600);display:block}
-.bc-err{background:#1a0000;color:#ff6666;border:1px solid #3a0000;display:block}
-
-/* LOADING */
-.spinner-row{
-  display:flex;align-items:center;gap:10px;
-  padding:24px 20px;
-  color:var(--g400);
-  font-size:12px;
+.modal-box{
+  background:var(--g800);
+  border:1px solid var(--g600);
+  border-radius:10px;
+  width:90%;max-width:540px;
+  padding:24px;
+  box-shadow:0 20px 40px rgba(0,0,0,.8);
+  display:flex;
+  flex-direction:column;
+  gap:16px;
 }
-.spin{
-  width:14px;height:14px;
-  border:1.5px solid var(--g600);
-  border-top-color:var(--g200);
-  border-radius:50%;
-  animation:spin .7s linear infinite;
+.modal-head{display:flex;justify-content:space-between;align-items:center}
+.modal-title{font-size:16px;font-weight:700}
+.modal-close{background:none;border:none;color:var(--g300);font-size:20px;cursor:pointer}
+.code-display{
+  background:var(--g900);
+  border:2px dashed var(--blue);
+  border-radius:8px;
+  padding:24px;
+  text-align:center;
 }
-@keyframes spin{to{transform:rotate(360deg)}}
+.pairing-code-text{
+  font-size:36px;
+  font-weight:800;
+  letter-spacing:6px;
+  color:var(--white);
+  font-family:monospace;
+}
 
-/* EMPTY */
-.empty{padding:28px 20px;text-align:center;color:var(--g400);font-size:12px}
-
-/* FOOTER */
 footer{
   text-align:center;
-  padding:28px;
+  padding:24px;
+  color:var(--g400);
   font-size:11px;
-  color:var(--g500);
   border-top:1px solid var(--g700);
-  margin-top:32px;
-  letter-spacing:.3px;
-}
-
-@media(max-width:900px){
-  .stat-grid{grid-template-columns:repeat(3,1fr)}
-  .row{grid-template-columns:1fr}
-}
-@media(max-width:600px){
-  .stat-grid{grid-template-columns:1fr 1fr}
-  main{padding:20px 16px}
+  margin-top:40px;
 }
 </style>
 </head>
@@ -278,87 +335,421 @@ footer{
 
 <nav>
   <div class="nav-left">
-    <div class="wordmark">MAX<sup>&#8734;</sup></div>
-    <div class="nav-tag">Admin</div>
+    <div class="wordmark">MAX<sup>&infin;</sup> Multi-Tenant Engine</div>
+    <div class="nav-tag">FABER AI Studio</div>
   </div>
   <div class="nav-right">
-    <div class="live-badge"><div class="live-dot"></div>System Online</div>
-    <button class="btn-refresh" id="btn-update" onclick="updateServer()" style="border-color:#38bdf8;color:#38bdf8;">Update Server</button>
+    <div class="live-badge">
+      <div class="live-dot"></div>
+      <span>Fleet Active</span>
+    </div>
     <button class="btn-refresh" onclick="loadAll()">Refresh</button>
+    <button class="btn-refresh" id="btn-update" onclick="updateServer()">Update Server</button>
   </div>
 </nav>
 
 <main>
 
-  <!-- STATS -->
-  <div class="section-label">Overview</div>
-  <div class="stat-grid" id="stat-grid">
-    <div class="stat"><div class="stat-label">Total Users</div><div class="stat-val" id="s-users">...</div></div>
-    <div class="stat"><div class="stat-label">Active Today</div><div class="stat-val" id="s-active">...</div></div>
-    <div class="stat"><div class="stat-label">Total Messages</div><div class="stat-val" id="s-msgs">...</div></div>
-    <div class="stat"><div class="stat-label">Total Leads</div><div class="stat-val" id="s-leads">...</div></div>
-    <div class="stat"><div class="stat-label">Paid Users</div><div class="stat-val" id="s-paid">...</div></div>
+  <!-- FLEET AGENTS SECTION -->
+  <div class="section-label">
+    <span>Connected Client Agents Fleet</span>
+    <button class="btn-primary" onclick="openAddTenantModal()">+ Add New Client</button>
+  </div>
+  <div class="fleet-grid" id="fleet-container">
+    <div style="color:var(--g400);font-size:12px;padding:20px;">Loading fleet agents...</div>
   </div>
 
-  <!-- CHART + BROADCAST -->
+  <!-- DANIEL VIP & GLOBAL STATS -->
   <div class="row">
+    <!-- VIP COPILOT WIDGET -->
     <div class="panel">
       <div class="panel-head">
-        <div class="panel-title">Message Volume</div>
-        <div class="panel-meta">14 days</div>
+        <div class="panel-title">👑 VIP Executive Co-Pilot Setup (Daniel / D.TRINO)</div>
+        <div class="panel-meta">Central MAX Line</div>
       </div>
-      <div class="panel-body" style="padding:16px 16px 8px">
-        <canvas id="chart-canvas"></canvas>
+      <div class="panel-body">
+        <p style="font-size:12px;color:var(--g300);margin-bottom:12px;">
+          Assign phone numbers as VIPs. They chat with MAX directly, receive the Executive Co-Pilot persona (summarization, task alarms, proxy messages), and bypass all rate limits.
+        </p>
+        <div style="display:flex;gap:10px;">
+          <input type="text" id="vip-phone" placeholder="e.g. 2348012345678 or 080..." style="flex:1;">
+          <button class="btn-primary" onclick="activateVIP()">Activate VIP</button>
+        </div>
+        <div id="vip-status" style="font-size:11px;margin-top:8px;color:var(--green)"></div>
       </div>
     </div>
 
+    <!-- QUICK BROADCAST -->
     <div class="panel">
       <div class="panel-head">
-        <div class="panel-title">Broadcast</div>
+        <div class="panel-title">Master Broadcast</div>
         <div class="panel-meta" id="bc-user-count">0 users</div>
       </div>
       <div class="panel-body">
         <div class="broadcast-wrap">
-          <textarea id="bc-text" placeholder="Write a message to send to all users..."></textarea>
-          <button class="btn-broadcast" id="bc-btn" onclick="sendBroadcast()">Send to All Users</button>
-          <div class="bc-msg" id="bc-result"></div>
+          <textarea id="bc-text" rows="2" placeholder="Write message to send across all users..."></textarea>
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn-broadcast" id="bc-btn" onclick="sendBroadcast()">Send Broadcast</button>
+          </div>
+          <div id="bc-result" style="font-size:11px;margin-top:4px;"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- LEADS + USERS -->
+  <!-- OVERVIEW COUNTERS -->
+  <div class="section-label">Global Usage Metrics</div>
+  <div class="stat-grid">
+    <div class="stat"><div class="stat-label">Total End-Users</div><div class="stat-val" id="s-users">...</div></div>
+    <div class="stat"><div class="stat-label">Active Today</div><div class="stat-val" id="s-active">...</div></div>
+    <div class="stat"><div class="stat-label">Messages Processed</div><div class="stat-val" id="s-msgs">...</div></div>
+    <div class="stat"><div class="stat-label">Captured Leads</div><div class="stat-val" id="s-leads">...</div></div>
+    <div class="stat"><div class="stat-label">Paid Accounts</div><div class="stat-val" id="s-paid">...</div></div>
+  </div>
+
+  <!-- CHART & RECENT LEADS -->
   <div class="row">
     <div class="panel">
       <div class="panel-head">
-        <div class="panel-title">Recent Leads</div>
-        <div class="panel-meta" id="leads-count">0</div>
+        <div class="panel-title">System Message Traffic</div>
+        <div class="panel-meta">Last 14 Days</div>
       </div>
-      <div id="leads-body">
-        <div class="spinner-row"><div class="spin"></div>Loading...</div>
+      <div class="panel-body" style="padding:16px 16px 8px">
+        <canvas id="chart-canvas" style="display:block;width:100%;height:140px;"></canvas>
       </div>
     </div>
 
     <div class="panel">
       <div class="panel-head">
-        <div class="panel-title">Users</div>
-        <div class="panel-meta" id="users-count">0</div>
+        <div class="panel-title">Recent Captured Leads</div>
+        <div class="panel-meta" id="leads-count">0</div>
       </div>
-      <div id="users-body">
-        <div class="spinner-row"><div class="spin"></div>Loading...</div>
+      <div id="leads-body" style="max-height:220px;overflow-y:auto">
+        <div style="color:var(--g400);padding:20px">Loading leads...</div>
       </div>
     </div>
   </div>
 
 </main>
 
-<footer>FABER AI Studio &mdash; MAX&#8734; Admin Panel</footer>
+<!-- PAIRING MODAL -->
+<div class="modal-overlay" id="pair-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-title">Link Client WhatsApp Number</div>
+      <button class="modal-close" onclick="closeModal('pair-modal')">&times;</button>
+    </div>
+    <p style="font-size:12px;color:var(--g300)" id="pair-instructions">
+      Generating pairing code...
+    </p>
+    <div class="code-display">
+      <div class="pairing-code-text" id="modal-code">---- ----</div>
+    </div>
+    <div style="font-size:12px;color:var(--g200);line-height:1.5;background:var(--g700);padding:12px;border-radius:6px;">
+      <b>On Client Phone:</b><br>
+      1. Open WhatsApp &gt; <b>Linked Devices</b><br>
+      2. Tap <b>Link a Device</b><br>
+      3. Tap <b>"Link with phone number instead"</b><br>
+      4. Enter the 8-digit code above.
+    </div>
+    <button class="btn-primary" style="width:100%" onclick="closeModal('pair-modal')">Done / Close</button>
+  </div>
+</div>
+
+<!-- EDIT TENANT MODAL -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal-box" style="max-width:640px;">
+    <div class="modal-head">
+      <div class="modal-title" id="edit-modal-title">Edit Client Agent</div>
+      <button class="modal-close" onclick="closeModal('edit-modal')">&times;</button>
+    </div>
+    <input type="hidden" id="edit-tenant-id">
+    <div>
+      <label style="font-size:11px;color:var(--g300)">Client Agent Name</label>
+      <input type="text" id="edit-name" style="margin-top:4px;">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--g300)">Bot Phone Number (Clean digits, e.g. 2347017284810)</label>
+      <input type="text" id="edit-phone" style="margin-top:4px;">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--g300)">Welcome Message</label>
+      <textarea id="edit-welcome" rows="3" style="margin-top:4px;"></textarea>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--g300)">System Persona & Instructions</label>
+      <textarea id="edit-prompt" rows="8" style="margin-top:4px;font-family:monospace;font-size:11px;"></textarea>
+    </div>
+    <button class="btn-primary" style="width:100%" onclick="saveTenantConfig()">Save Changes</button>
+  </div>
+</div>
+
+<!-- ADD NEW CLIENT MODAL -->
+<div class="modal-overlay" id="add-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-title">+ Add New Client Agent</div>
+      <button class="modal-close" onclick="closeModal('add-modal')">&times;</button>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--g300)">Unique Tenant ID (e.g. campos, alpha_store)</label>
+      <input type="text" id="add-id" placeholder="e.g. sunshine_store">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--g300)">Client / Business Name</label>
+      <input type="text" id="add-name" placeholder="e.g. Sunshine Boutique">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--g300)">Client Phone Number (for WhatsApp)</label>
+      <input type="text" id="add-phone" placeholder="e.g. 2348012345678">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--g300)">Template</label>
+      <select id="add-template" style="width:100%;padding:8px;background:var(--g900);color:var(--white);border:1px solid var(--g600);border-radius:4px;margin-top:4px;" onchange="onTemplateChange()">
+        <option value="support">Customer Support & FAQs</option>
+        <option value="admissions">Admissions & Portal Guidance</option>
+        <option value="sales">Product Sales & Order Assistant</option>
+        <option value="custom">Custom Agent</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--g300)">Initial System Prompt</label>
+      <textarea id="add-prompt" rows="4" style="margin-top:4px;font-size:11px;"></textarea>
+    </div>
+    <button class="btn-primary" style="width:100%" onclick="createTenantSubmit()">Create & Provision Client</button>
+  </div>
+</div>
+
+<footer>FABER AI Studio &mdash; MAX&infin; Multi-Tenant Control Plane</footer>
 
 <script>
 const params = new URLSearchParams(location.search)
-const KEY    = params.get('key') || 'faber2024'
-const api    = p => `${p}?key=${KEY}`
+const KEY = params.get('key') || 'faber2024'
+const api = p => `${p}${p.includes('?') ? '&' : '?'}key=${KEY}`
 
+function openModal(id) { document.getElementById(id).style.display = 'flex' }
+function closeModal(id) { document.getElementById(id).style.display = 'none' }
+
+// ── LOAD FLEET AGENTS ─────────────────────────────────────────────────────────
+async function loadFleet() {
+  try {
+    const res = await (await fetch(api('/admin/fleet'))).json()
+    const fleet = res.fleet || []
+    const container = document.getElementById('fleet-container')
+
+    if (!fleet.length) {
+      container.innerHTML = '<div style="color:var(--g400);padding:20px;">No clients configured yet.</div>'
+      return
+    }
+
+    container.innerHTML = fleet.map(t => {
+      let statusClass = 'pill-offline'
+      let statusText = 'Disconnected'
+      if (t.connection_status === 'connected') {
+        statusClass = 'pill-online'
+        statusText = '🟢 Online'
+      } else if (t.connection_status === 'pairing_ready' || t.pairing_code) {
+        statusClass = 'pill-yellow'
+        statusText = `🟡 Code: ${t.pairing_code || 'Ready'}`
+      }
+
+      const isMain = t.id === 'main'
+      const displayPhone = t.bot_phone ? ('+' + t.bot_phone) : (isMain ? 'Central MAX Bot' : 'No Phone Assigned')
+
+      return `
+        <div class="tenant-card">
+          <div class="tenant-head">
+            <div>
+              <div class="tenant-title">${esc(t.name)}</div>
+              <div class="tenant-phone">${displayPhone}</div>
+            </div>
+            <div class="status-pill ${statusClass}">${statusText}</div>
+          </div>
+
+          <div class="tenant-stats-row">
+            <div class="tstat-item">
+              <span class="tstat-lbl">End-Users</span>
+              <span class="tstat-val">${fmt(t.users)}</span>
+            </div>
+            <div class="tstat-item">
+              <span class="tstat-lbl">Messages</span>
+              <span class="tstat-val">${fmt(t.messages)}</span>
+            </div>
+            <div class="tstat-item">
+              <span class="tstat-lbl">Leads</span>
+              <span class="tstat-val">${fmt(t.leads)}</span>
+            </div>
+          </div>
+
+          <div class="tenant-actions">
+            ${!isMain ? `<button class="btn-action btn-pair" onclick="pairTenant('${t.id}', '${t.bot_phone || ''}')">📲 8-Digit Pairing Code</button>` : ''}
+            <button class="btn-action" onclick="openEditTenantModal('${t.id}')">⚙️ Edit Persona</button>
+            ${t.connection_status === 'connected' ? `<button class="btn-action" style="color:var(--red)" onclick="disconnectTenant('${t.id}')">Disconnect</button>` : ''}
+          </div>
+        </div>
+      `
+    }).join('')
+
+  } catch(e) {
+    console.error('Fleet error:', e)
+  }
+}
+
+// ── PAIRING CODE ACTION ───────────────────────────────────────────────────────
+async function pairTenant(tenantId, currentPhone) {
+  let phone = currentPhone
+  if (!phone || phone === 'null') {
+    phone = prompt("Enter the WhatsApp phone number to link (e.g. 2347017284810):")
+    if (!phone) return
+  }
+
+  document.getElementById('modal-code').textContent = 'GENERATING...'
+  document.getElementById('pair-instructions').textContent = `Requesting 8-digit code for ${phone}...`
+  openModal('pair-modal')
+
+  try {
+    const res = await (await fetch(api(`/admin/tenants/${tenantId}/pair`), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ phone_number: phone })
+    })).json()
+
+    if (res.pairing_code) {
+      document.getElementById('modal-code').textContent = res.pairing_code
+      document.getElementById('pair-instructions').textContent = `Pairing code generated successfully!`
+    } else if (res.status === 'already_connected') {
+      document.getElementById('modal-code').textContent = 'CONNECTED'
+      document.getElementById('pair-instructions').textContent = `This number is already connected and active!`
+    } else {
+      document.getElementById('modal-code').textContent = 'CHECK LOGS'
+      document.getElementById('pair-instructions').textContent = res.message || 'Waiting for WhatsApp server...'
+    }
+    loadFleet()
+  } catch(e) {
+    document.getElementById('modal-code').textContent = 'ERROR'
+    document.getElementById('pair-instructions').textContent = e.message
+  }
+}
+
+async function disconnectTenant(tenantId) {
+  if (!confirm(`Are you sure you want to disconnect tenant '${tenantId}'?`)) return
+  await fetch(api(`/admin/tenants/${tenantId}/disconnect`), { method: 'POST' })
+  loadFleet()
+}
+
+// ── EDIT TENANT CONFIG ────────────────────────────────────────────────────────
+async function openEditTenantModal(tenantId) {
+  try {
+    const d = await (await fetch(api(`/admin/tenants/${tenantId}`))).json()
+    const t = d.tenant
+    const cfg = d.config || {}
+    document.getElementById('edit-tenant-id').value = tenantId
+    document.getElementById('edit-modal-title').textContent = `Edit Agent: ${t.name}`
+    document.getElementById('edit-name').value = t.name || ''
+    document.getElementById('edit-phone').value = t.bot_phone || ''
+    document.getElementById('edit-welcome').value = cfg.welcome_message || ''
+    document.getElementById('edit-prompt').value = cfg.system_prompt || ''
+    openModal('edit-modal')
+  } catch(e) {
+    alert("Failed to load tenant details: " + e.message)
+  }
+}
+
+async function saveTenantConfig() {
+  const tenantId = document.getElementById('edit-tenant-id').value
+  const payload = {
+    name: document.getElementById('edit-name').value.trim(),
+    bot_phone: document.getElementById('edit-phone').value.trim(),
+    welcome_message: document.getElementById('edit-welcome').value.trim(),
+    system_prompt: document.getElementById('edit-prompt').value.trim()
+  }
+
+  try {
+    await fetch(api(`/admin/tenants/${tenantId}`), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    })
+    closeModal('edit-modal')
+    loadFleet()
+    alert("Tenant configuration updated successfully!")
+  } catch(e) {
+    alert("Error updating config: " + e.message)
+  }
+}
+
+// ── ADD NEW TENANT ────────────────────────────────────────────────────────────
+function openAddTenantModal() {
+  document.getElementById('add-id').value = ''
+  document.getElementById('add-name').value = ''
+  document.getElementById('add-phone').value = ''
+  onTemplateChange()
+  openModal('add-modal')
+}
+
+function onTemplateChange() {
+  const t = document.getElementById('add-template').value
+  const p = document.getElementById('add-prompt')
+  if (t === 'support') {
+    p.value = "You are a friendly, helpful customer support agent. Answer customer inquiries politely, explain how our services work, and take note of order requests."
+  } else if (t === 'admissions') {
+    p.value = "You are an admissions assistant helping students with application requirements, registration deadlines, and portal access."
+  } else if (t === 'sales') {
+    p.value = "You are a sales assistant helping customers browse available products, check pricing, and process order payments."
+  } else {
+    p.value = "You are an AI assistant designed to help customers with their inquiries."
+  }
+}
+
+async function createTenantSubmit() {
+  const payload = {
+    id: document.getElementById('add-id').value.trim(),
+    name: document.getElementById('add-name').value.trim(),
+    bot_phone: document.getElementById('add-phone').value.trim(),
+    system_prompt: document.getElementById('add-prompt').value.trim()
+  }
+  if (!payload.id || !payload.name) {
+    alert("Please provide an ID and Name.")
+    return
+  }
+
+  try {
+    const res = await (await fetch(api('/admin/tenants'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    })).json()
+
+    if (res.status === 'ok') {
+      closeModal('add-modal')
+      loadFleet()
+      alert(`Client '${payload.name}' created! You can now link their WhatsApp number.`)
+    } else {
+      alert("Error: " + (res.error || 'Failed to create client'))
+    }
+  } catch(e) {
+    alert("Error creating client: " + e.message)
+  }
+}
+
+// ── VIP COPILOT (DANIEL) ──────────────────────────────────────────────────────
+async function activateVIP() {
+  const phone = document.getElementById('vip-phone').value.trim()
+  const statusEl = document.getElementById('vip-status')
+  if (!phone) { alert("Enter a phone number"); return }
+  try {
+    const res = await (await fetch(api('/admin/vip'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ sender: phone, is_vip: 1 })
+    })).json()
+    statusEl.textContent = `👑 VIP Status Active for ${res.sender} (Executive Co-Pilot enabled)`
+  } catch(e) {
+    statusEl.textContent = "Error setting VIP: " + e.message
+  }
+}
+
+// ── GLOBAL STATS & CHARTS ─────────────────────────────────────────────────────
 async function loadStats() {
   try {
     const d = await (await fetch(api('/admin/stats'))).json()
@@ -374,33 +765,33 @@ async function loadStats() {
 async function loadChart() {
   try {
     const data = await (await fetch(api('/admin/chart'))).json()
-    if (!data.length) { return }
+    if (!data.length) return
     const canvas = document.getElementById('chart-canvas')
-    const dpr    = window.devicePixelRatio || 1
-    const W      = canvas.parentElement.clientWidth - 32
-    const H      = 140
-    canvas.width  = W * dpr
+    const dpr = window.devicePixelRatio || 1
+    const W = canvas.parentElement.clientWidth - 32
+    const H = 140
+    canvas.width = W * dpr
     canvas.height = H * dpr
-    canvas.style.width  = W + 'px'
+    canvas.style.width = W + 'px'
     canvas.style.height = H + 'px'
     const ctx = canvas.getContext('2d')
     ctx.scale(dpr, dpr)
 
-    const items  = [...data].reverse()
-    const max    = Math.max(...items.map(d => d.messages || 0)) || 1
-    const cols   = items.length
-    const padL   = 0, padR = 0, padT = 8, padB = 22
-    const bW     = (W - padL - padR) / cols
-    const bGap   = bW * 0.3
+    const items = [...data].reverse()
+    const max = Math.max(...items.map(d => d.messages || 0)) || 1
+    const cols = items.length
+    const padL = 0, padR = 0, padT = 8, padB = 22
+    const bW = (W - padL - padR) / cols
+    const bGap = bW * 0.3
     const bInner = bW - bGap
 
     ctx.clearRect(0, 0, W, H)
 
     items.forEach((d, i) => {
-      const x   = padL + i * bW + bGap / 2
+      const x = padL + i * bW + bGap / 2
       const pct = (d.messages || 0) / max
-      const bH  = Math.max(2, pct * (H - padT - padB))
-      const y   = H - padB - bH
+      const bH = Math.max(2, pct * (H - padT - padB))
+      const y = H - padB - bH
 
       ctx.fillStyle = pct > 0.6 ? '#fff' : pct > 0.3 ? '#888' : '#3a3a3a'
       ctx.beginPath()
@@ -423,7 +814,7 @@ async function loadLeads() {
     const data = await (await fetch(api('/admin/leads'))).json()
     document.getElementById('leads-count').textContent = data.length
     if (!data.length) {
-      document.getElementById('leads-body').innerHTML = '<div class="empty">No leads yet</div>'
+      document.getElementById('leads-body').innerHTML = '<div style="color:var(--g400);padding:20px;">No leads yet</div>'
       return
     }
     document.getElementById('leads-body').innerHTML = `
@@ -432,43 +823,22 @@ async function loadLeads() {
         <tbody>${data.map(l => `<tr>
           <td class="num">
             ${l.name ? `<span style="color:#fff">${esc(l.name)}</span><br>` : ''}
-            <a href="https://wa.me/${clean(l.sender)}" target="_blank" style="color:#555;text-decoration:none;font-size:11px;border-bottom:1px solid #2a2a2a">${clean(l.sender)}</a>
+            <a href="https://wa.me/${clean(l.sender)}" target="_blank" style="color:#555;text-decoration:none;font-size:11px">${clean(l.sender)}</a>
           </td>
           <td>${esc(l.message).slice(0,35)}${l.message.length>35?'&hellip;':''}</td>
           <td class="dim">${(l.timestamp||'').slice(0,16)}</td>
         </tr>`).join('')}</tbody>
       </table>`
-  } catch(e) { document.getElementById('leads-body').innerHTML = '<div class="empty">Failed to load</div>' }
-}
-
-async function loadUsers() {
-  try {
-    const data = await (await fetch(api('/admin/users'))).json()
-    document.getElementById('users-count').textContent = data.length
-    if (!data.length) {
-      document.getElementById('users-body').innerHTML = '<div class="empty">No users yet</div>'
-      return
-    }
-    document.getElementById('users-body').innerHTML = `
-      <table class="tbl">
-        <thead><tr><th>Name</th><th>Number</th><th>Msgs</th><th>Plan</th><th>Since</th></tr></thead>
-        <tbody>${data.map(u => `<tr>
-          <td>${u.name || '<span class="dim">-</span>'}</td>
-          <td class="dim"><a href="https://wa.me/${clean(u.sender)}" target="_blank" style="color:#888;text-decoration:none;border-bottom:1px solid #3a3a3a">${clean(u.sender)}</a></td>
-          <td class="num">${u.message_count}</td>
-          <td><span class="badge ${u.is_paid?'badge-pro':'badge-free'}">${u.is_paid?'Pro':'Free'}</span></td>
-          <td class="dim">${(u.first_seen||'').slice(0,10)}</td>
-        </tr>`).join('')}</tbody>
-      </table>`
-  } catch(e) { document.getElementById('users-body').innerHTML = '<div class="empty">Failed to load</div>' }
+  } catch(e) {
+    document.getElementById('leads-body').innerHTML = '<div style="color:var(--g400);padding:20px;">Failed to load leads</div>'
+  }
 }
 
 async function sendBroadcast() {
   const msg = document.getElementById('bc-text').value.trim()
   const res = document.getElementById('bc-result')
   const btn = document.getElementById('bc-btn')
-  res.className = 'bc-msg'
-  if (!msg) { res.className = 'bc-msg bc-err'; res.textContent = 'Message is empty.'; return }
+  if (!msg) { alert("Message is empty."); return }
   btn.disabled = true; btn.textContent = 'Sending...'
   try {
     const r = await fetch(api('/admin/broadcast'), {
@@ -477,31 +847,29 @@ async function sendBroadcast() {
       body: JSON.stringify({message:msg})
     })
     const d = await r.json()
-    res.className = 'bc-msg bc-ok'
+    res.style.color = 'var(--green)'
     res.textContent = `Sent to ${d.sent} of ${d.total} users.`
     document.getElementById('bc-text').value = ''
   } catch(e) {
-    res.className = 'bc-msg bc-err'
-    res.textContent = 'Failed. Is Flask running?'
+    res.style.color = 'var(--red)'
+    res.textContent = 'Failed to send broadcast.'
   }
-  btn.disabled = false; btn.textContent = 'Send to All Users'
+  btn.disabled = false; btn.textContent = 'Send Broadcast'
 }
 
 async function updateServer() {
-  const btn = document.getElementById('btn-update');
-  if (!confirm("Pull latest code from GitHub and reload MAX on the server?")) return;
-  btn.disabled = true;
-  btn.textContent = "Updating...";
+  const btn = document.getElementById('btn-update')
+  if (!confirm("Pull latest code and reload server?")) return
+  btn.disabled = true; btn.textContent = "Updating..."
   try {
-    const r = await fetch(api('/admin/update'));
-    const d = await r.json();
-    alert(d.message || d.git_output || "Server update completed!");
+    const r = await fetch(api('/admin/update'))
+    const d = await r.json()
+    alert(d.message || d.git_output || "Server update complete!")
   } catch(e) {
-    alert("Update request sent. The server is restarting now!");
+    alert("Update request dispatched! Server is reloading.")
   } finally {
-    btn.disabled = false;
-    btn.textContent = "Update Server";
-    setTimeout(loadAll, 4000);
+    btn.disabled = false; btn.textContent = "Update Server"
+    setTimeout(loadAll, 4000)
   }
 }
 
@@ -509,8 +877,15 @@ function fmt(n) { return (n||0).toLocaleString() }
 function clean(s) { return (s||'').replace('@s.whatsapp.net','').replace('@lid','').replace('@c.us','') }
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;') }
 
-function loadAll() { loadStats(); loadChart(); loadLeads(); loadUsers() }
+function loadAll() {
+  loadFleet()
+  loadStats()
+  loadChart()
+  loadLeads()
+}
+
 loadAll()
+setInterval(loadFleet, 15000)
 setInterval(loadStats, 30000)
 </script>
 </body>

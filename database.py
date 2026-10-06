@@ -1,8 +1,14 @@
 import sqlite3
 import json
-from datetime import date
+from datetime import date, datetime
 
 DB_PATH = "max_users.db"
+
+
+def _get_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def init_db():
@@ -10,6 +16,7 @@ def init_db():
     conn.execute('PRAGMA journal_mode=WAL')
     c = conn.cursor()
 
+    # ── LEGACY TABLES (Preserved for 100% backward compatibility) ────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             sender          TEXT PRIMARY KEY,
@@ -52,168 +59,557 @@ def init_db():
         )
     """)
 
+    # ── MULTI-TENANT ARCHITECTURE TABLES ─────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tenants (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            bot_phone   TEXT,
+            owner_phone TEXT,
+            tenant_type TEXT DEFAULT 'business_bot',
+            status      TEXT DEFAULT 'active',
+            plan        TEXT DEFAULT 'standard',
+            created_at  TEXT NOT NULL
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tenant_configs (
+            tenant_id           TEXT PRIMARY KEY,
+            system_prompt       TEXT NOT NULL,
+            welcome_message     TEXT,
+            features_enabled    TEXT DEFAULT '{}',
+            routing_rules       TEXT DEFAULT '{}',
+            daily_message_limit INTEGER DEFAULT 500,
+            FOREIGN KEY(tenant_id) REFERENCES tenants(id)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tenant_users (
+            tenant_id       TEXT NOT NULL,
+            sender          TEXT NOT NULL,
+            name            TEXT,
+            first_seen      TEXT NOT NULL,
+            message_count   INTEGER DEFAULT 0,
+            daily_count     INTEGER DEFAULT 0,
+            last_msg_date   TEXT,
+            is_paid         INTEGER DEFAULT 0,
+            is_vip          INTEGER DEFAULT 0,
+            memory          TEXT DEFAULT '[]',
+            onboarded       INTEGER DEFAULT 0,
+            PRIMARY KEY (tenant_id, sender)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tenant_conversations (
+            tenant_id   TEXT NOT NULL,
+            sender      TEXT NOT NULL,
+            messages    TEXT DEFAULT '[]',
+            document    TEXT DEFAULT '',
+            updated_at  TEXT,
+            PRIMARY KEY (tenant_id, sender)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tenant_reminders (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id   TEXT NOT NULL,
+            sender      TEXT NOT NULL,
+            task        TEXT NOT NULL,
+            remind_time INTEGER NOT NULL,
+            created_at  TEXT NOT NULL,
+            is_sent     INTEGER DEFAULT 0
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tenant_leads (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id   TEXT NOT NULL,
+            sender      TEXT,
+            message     TEXT,
+            timestamp   TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tenant_assets (
+            id            TEXT PRIMARY KEY,
+            tenant_id     TEXT NOT NULL,
+            asset_type    TEXT NOT NULL,
+            title         TEXT,
+            file_path     TEXT,
+            metadata_json TEXT DEFAULT '{}'
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+    # Seed default launch tenants
+    seed_launch_tenants()
+
+
+# ── SEED LAUNCH TENANTS ───────────────────────────────────────────────────────
+
+def seed_launch_tenants():
+    now = datetime.now().isoformat()
+
+    CAMPOS_PROMPT = """You are CAMPOS AI, the official student and vendor assistant for the Campos App in Nigeria.
+
+ABOUT CAMPOS:
+- Campos is the all-in-one student platform helping university students access study materials, track study streaks, calculate GPA, and shop or sell in the campus marketplace.
+- Universities supported include AAUA, UNILORIN, UNIUYO, UNILAG, OAU, and others across Nigeria.
+
+YOUR CORE JOBS & CAPABILITIES:
+1. GREETING & MENU:
+When a user greets you or asks what you can do, welcome them warmly and give them this clean menu:
+"Welcome to Campos! 👋 I'm your campus assistant. How can I help you today?
+
+1️⃣ How to download study materials
+2️⃣ How to become a merchant / vendor
+3️⃣ Ask any question about the Campos app"
+
+2. HOW TO DOWNLOAD MATERIALS:
+If the user asks how to download materials, lecture notes, or past questions:
+Explain step-by-step:
+• Step 1: Open the Campos app and go to the Home screen.
+• Step 2: Tap the search bar that says "Search over 5000 materials". This takes you directly to the Materials Bank.
+• Step 3: Search by course code (e.g. CHE 342, MTH 101) or sort specifically for your university and level (100L, 200L, etc.).
+• Step 4: Download the material. Whatever you download is saved directly to "My Library", which you can access anytime from your Profile!
+Direct the user clearly and include this directive at the very end of your response:
+GUIDE_IMAGE: download_materials
+
+3. HOW TO BECOME A MERCHANT / VENDOR:
+If the user asks how to become a merchant, sell on Campos, or register as a vendor:
+Explain step-by-step:
+• Step 1: Open the Campos app and navigate to the Marketplace tab.
+• Step 2: Tap on the "Become a Vendor" button.
+• Step 3: On the Vendor Onboarding screen, review the perks (reach 1000+ active students, featured listings) and scroll down to tap "Start selling now".
+Direct the user clearly and include this directive at the very end of your response:
+GUIDE_IMAGE: become_vendor
+
+4. GENERAL INQUIRIES:
+Answer politely about library features, GPA calculation, and student resources. If a user asks something outside Campos features, politely explain:
+"I don't have that specific information right now, but you can reach the Campos support team directly on the app!\""""
+
+    CAMPOS_WELCOME = """Welcome to *Campos*! 👋 I'm your official campus assistant.
+
+How can I help you today?
+1️⃣ How to download study materials
+2️⃣ How to become a merchant / vendor
+3️⃣ Ask any question about the Campos app
+
+Feel free to choose an option or ask anything! 🚀"""
+
+    PORTAL_PROMPT = """You are PORTAL CONSULT AI, the official admissions and portal assistant for Portal Consult, founded by Charles.
+
+YOUR MISSION:
+- You help University of Uyo (Uniuyo) current students and aspiring students navigate admissions, JAMB registration, and student portal applications with zero stress.
+- Owner contact: Charles (+2348108395401).
+
+KEY SERVICES OFFERED:
+1. Online JAMB Registration & Application Processing
+2. Uniuyo Post-UTME Screening Assistance & Cut-off Advice
+3. Uniuyo Student Portal Course Registration, Fee Payments & Result Verification
+4. General Admissions Consulting & Departmental Requirements
+
+CONVERSATION & LEAD CAPTURE GUIDELINES:
+- Warm, professional, and knowledgeable about Nigerian tertiary education (JAMB, CAPS, O'Level uploading, Post-UTME).
+- Whenever a prospective student asks for help processing an application or registering, guide them and capture their details (Name, Desired Course, Phone Number, JAMB score).
+- When they are ready to proceed with processing or payment, tell them Charles will review their file and finalize it with them right here on WhatsApp!
+- If someone sends general inquiries, answer accurately and encourage them to get their application done early through Portal Consult."""
+
+    PORTAL_WELCOME = """Hello! 👋 Welcome to *Portal Consult* — your trusted guide for Uniuyo & JAMB admissions!
+
+We help students with:
+• 🎓 JAMB Online Registration & Processing
+• 🏫 Uniuyo Portal Applications & Screening
+• 📄 Course Registration & Clearance
+
+How can we assist you with your application today? 😊"""
+
+    tenants_to_seed = [
+        {
+            "id": "main",
+            "name": "MAX∞ Central",
+            "bot_phone": None,
+            "owner_phone": "2348163958919",
+            "tenant_type": "central_assistant",
+            "prompt": "You are MAX, an AI assistant built by FABER.",
+            "welcome": "Hey! 👋 I'm MAX — your AI assistant, built by FABER."
+        },
+        {
+            "id": "campos",
+            "name": "Campos App Support",
+            "bot_phone": "2347017284810",
+            "owner_phone": "2347017284810",
+            "tenant_type": "business_bot",
+            "prompt": CAMPOS_PROMPT,
+            "welcome": CAMPOS_WELCOME
+        },
+        {
+            "id": "portal_consult",
+            "name": "Portal Consult (Uniuyo & JAMB)",
+            "bot_phone": "2348108395401",
+            "owner_phone": "2348108395401",
+            "tenant_type": "business_bot",
+            "prompt": PORTAL_PROMPT,
+            "welcome": PORTAL_WELCOME
+        }
+    ]
+
+    conn = _get_conn()
+    for t in tenants_to_seed:
+        conn.execute("""
+            INSERT OR IGNORE INTO tenants (id, name, bot_phone, owner_phone, tenant_type, status, plan, created_at)
+            VALUES (?, ?, ?, ?, ?, 'active', 'standard', ?)
+        """, (t["id"], t["name"], t["bot_phone"], t["owner_phone"], t["tenant_type"], now))
+
+        conn.execute("""
+            INSERT OR IGNORE INTO tenant_configs (tenant_id, system_prompt, welcome_message)
+            VALUES (?, ?, ?)
+        """, (t["id"], t["prompt"], t["welcome"]))
+
     conn.commit()
     conn.close()
 
 
-def _get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+# ── TENANT MANAGEMENT CRUD ───────────────────────────────────────────────────
 
-
-def get_user(sender):
+def get_tenant(tenant_id):
     conn = _get_conn()
-    row = conn.execute("SELECT * FROM users WHERE sender=?", (sender,)).fetchone()
+    row = conn.execute("SELECT * FROM tenants WHERE id=?", (tenant_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
 
-def ensure_user(sender):
+def get_all_tenants():
+    conn = _get_conn()
+    rows = conn.execute("SELECT * FROM tenants ORDER BY created_at ASC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_tenant_config(tenant_id):
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM tenant_configs WHERE tenant_id=?", (tenant_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_tenant(tenant_id, **kwargs):
+    if not kwargs:
+        return
+    conn = _get_conn()
+    clause = ", ".join(f"{k}=?" for k in kwargs)
+    conn.execute(f"UPDATE tenants SET {clause} WHERE id=?", (*kwargs.values(), tenant_id))
+    conn.commit()
+    conn.close()
+
+
+def update_tenant_config(tenant_id, **kwargs):
+    if not kwargs:
+        return
+    conn = _get_conn()
+    clause = ", ".join(f"{k}=?" for k in kwargs)
+    conn.execute(f"UPDATE tenant_configs SET {clause} WHERE tenant_id=?", (*kwargs.values(), tenant_id))
+    conn.commit()
+    conn.close()
+
+
+def create_tenant(tenant_id, name, bot_phone=None, owner_phone="", tenant_type="business_bot", system_prompt="", welcome_message=""):
+    now = datetime.now().isoformat()
+    conn = _get_conn()
+    conn.execute("""
+        INSERT OR REPLACE INTO tenants (id, name, bot_phone, owner_phone, tenant_type, status, plan, created_at)
+        VALUES (?, ?, ?, ?, ?, 'active', 'standard', ?)
+    """, (tenant_id, name, bot_phone, owner_phone, tenant_type, now))
+
+    conn.execute("""
+        INSERT OR REPLACE INTO tenant_configs (tenant_id, system_prompt, welcome_message)
+        VALUES (?, ?, ?)
+    """, (tenant_id, system_prompt, welcome_message))
+    conn.commit()
+    conn.close()
+    return get_tenant(tenant_id)
+
+
+# ── TENANT USER & CONVERSATION OPERATIONS ─────────────────────────────────────
+
+def get_tenant_user(tenant_id, sender):
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT * FROM tenant_users WHERE tenant_id=? AND sender=?",
+        (tenant_id, sender)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def ensure_tenant_user(tenant_id, sender):
     today = str(date.today())
     conn = _get_conn()
     conn.execute("""
-        INSERT OR IGNORE INTO users (sender, first_seen, last_msg_date)
-        VALUES (?, ?, ?)
-    """, (sender, today, today))
+        INSERT OR IGNORE INTO tenant_users (tenant_id, sender, first_seen, last_msg_date)
+        VALUES (?, ?, ?, ?)
+    """, (tenant_id, sender, today, today))
     conn.commit()
     conn.close()
-    return get_user(sender)
+    return get_tenant_user(tenant_id, sender)
 
 
-def tick_message(sender):
-    """Increment counters, reset daily on new day. Returns (user, is_new_user)."""
-    user = get_user(sender)
+def tick_tenant_message(tenant_id, sender):
+    """Increment counters for tenant. Reset daily count on new day."""
+    user = get_tenant_user(tenant_id, sender)
     is_new = user is None
 
     if is_new:
-        user = ensure_user(sender)
+        user = ensure_tenant_user(tenant_id, sender)
 
     today = str(date.today())
     conn = _get_conn()
 
     if user["last_msg_date"] != today:
         conn.execute("""
-            UPDATE users
+            UPDATE tenant_users
             SET daily_count=1, message_count=message_count+1, last_msg_date=?
-            WHERE sender=?
-        """, (today, sender))
+            WHERE tenant_id=? AND sender=?
+        """, (today, tenant_id, sender))
     else:
         conn.execute("""
-            UPDATE users
+            UPDATE tenant_users
             SET daily_count=daily_count+1, message_count=message_count+1
-            WHERE sender=?
-        """, (sender,))
+            WHERE tenant_id=? AND sender=?
+        """, (tenant_id, sender))
 
     conn.commit()
     conn.close()
-    return get_user(sender), is_new
+    return get_tenant_user(tenant_id, sender), is_new
 
 
-def is_over_limit(sender, limit=20):
-    user = get_user(sender)
-    if not user or user["is_paid"]:
-        return False
-    if user["last_msg_date"] != str(date.today()):
-        return False
-    return user["daily_count"] >= limit
-
-
-def update_user(sender, **kwargs):
+def update_tenant_user(tenant_id, sender, **kwargs):
     if not kwargs:
         return
     conn = _get_conn()
     clause = ", ".join(f"{k}=?" for k in kwargs)
-    conn.execute(f"UPDATE users SET {clause} WHERE sender=?", (*kwargs.values(), sender))
-    conn.commit()
-    conn.close()
-
-
-# ---- MEMORY ----
-
-def add_memory(sender, fact):
-    user = get_user(sender) or ensure_user(sender)
-    mem = json.loads(user["memory"] or "[]")
-    mem.append(fact)
-    if len(mem) > 20:
-        mem = mem[-20:]
-    update_user(sender, memory=json.dumps(mem))
-
-
-def get_memory(sender):
-    user = get_user(sender)
-    return json.loads(user["memory"] or "[]") if user else []
-
-
-# ---- CONVERSATIONS ----
-
-def save_conversation(sender, messages):
-    conn = _get_conn()
-    conn.execute("""
-        INSERT INTO conversations (sender, messages)
-        VALUES (?, ?)
-        ON CONFLICT(sender) DO UPDATE SET messages=excluded.messages
-    """, (sender, json.dumps(messages)))
-    conn.commit()
-    conn.close()
-
-
-def load_conversation(sender):
-    conn = _get_conn()
-    row = conn.execute("SELECT messages FROM conversations WHERE sender=?", (sender,)).fetchone()
-    conn.close()
-    return json.loads(row["messages"]) if row else []
-
-
-def save_document(sender, text):
-    conn = _get_conn()
-    conn.execute("""
-        INSERT INTO conversations (sender, document)
-        VALUES (?, ?)
-        ON CONFLICT(sender) DO UPDATE SET document=excluded.document
-    """, (sender, text))
-    conn.commit()
-    conn.close()
-
-
-def load_document(sender):
-    conn = _get_conn()
-    row = conn.execute("SELECT document FROM conversations WHERE sender=?", (sender,)).fetchone()
-    conn.close()
-    return row["document"] if row else ""
-
-
-# ---- LEADS ----
-
-def save_lead(sender, message):
-    from datetime import datetime
-    conn = _get_conn()
     conn.execute(
-        "INSERT INTO leads (sender, message, timestamp) VALUES (?, ?, ?)",
-        (sender, message, datetime.now().isoformat())
+        f"UPDATE tenant_users SET {clause} WHERE tenant_id=? AND sender=?",
+        (*kwargs.values(), tenant_id, sender)
     )
     conn.commit()
     conn.close()
 
 
+def add_tenant_memory(tenant_id, sender, fact):
+    user = get_tenant_user(tenant_id, sender) or ensure_tenant_user(tenant_id, sender)
+    mem = json.loads(user["memory"] or "[]")
+    mem.append(fact)
+    if len(mem) > 20:
+        mem = mem[-20:]
+    update_tenant_user(tenant_id, sender, memory=json.dumps(mem))
+
+
+def get_tenant_memory(tenant_id, sender):
+    user = get_tenant_user(tenant_id, sender)
+    return json.loads(user["memory"] or "[]") if user else []
+
+
+def save_tenant_conversation(tenant_id, sender, messages):
+    now = datetime.now().isoformat()
+    conn = _get_conn()
+    conn.execute("""
+        INSERT INTO tenant_conversations (tenant_id, sender, messages, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, sender) DO UPDATE SET messages=excluded.messages, updated_at=excluded.updated_at
+    """, (tenant_id, sender, json.dumps(messages), now))
+    conn.commit()
+    conn.close()
+
+
+def load_tenant_conversation(tenant_id, sender):
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT messages FROM tenant_conversations WHERE tenant_id=? AND sender=?",
+        (tenant_id, sender)
+    ).fetchone()
+    conn.close()
+    return json.loads(row["messages"]) if row else []
+
+
+def save_tenant_document(tenant_id, sender, text):
+    now = datetime.now().isoformat()
+    conn = _get_conn()
+    conn.execute("""
+        INSERT INTO tenant_conversations (tenant_id, sender, document, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, sender) DO UPDATE SET document=excluded.document, updated_at=excluded.updated_at
+    """, (tenant_id, sender, text, now))
+    conn.commit()
+    conn.close()
+
+
+def load_tenant_document(tenant_id, sender):
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT document FROM tenant_conversations WHERE tenant_id=? AND sender=?",
+        (tenant_id, sender)
+    ).fetchone()
+    conn.close()
+    return row["document"] if row else ""
+
+
+def add_tenant_reminder(tenant_id, sender, task, remind_time):
+    now_str = str(date.today())
+    conn = _get_conn()
+    conn.execute("""
+        INSERT INTO tenant_reminders (tenant_id, sender, task, remind_time, created_at, is_sent)
+        VALUES (?, ?, ?, ?, ?, 0)
+    """, (tenant_id, sender, task, int(remind_time), now_str))
+    conn.commit()
+    conn.close()
+
+
+def get_due_tenant_reminders(current_time):
+    conn = _get_conn()
+    rows = conn.execute("""
+        SELECT * FROM tenant_reminders WHERE is_sent = 0 AND remind_time <= ?
+    """, (int(current_time),)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_tenant_reminder_sent(reminder_id):
+    conn = _get_conn()
+    conn.execute("UPDATE tenant_reminders SET is_sent = 1 WHERE id = ?", (int(reminder_id),))
+    conn.commit()
+    conn.close()
+
+
+def save_tenant_lead(tenant_id, sender, message):
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO tenant_leads (tenant_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
+        (tenant_id, sender, message, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_tenant_leads(tenant_id, limit=30):
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT * FROM tenant_leads WHERE tenant_id=? ORDER BY id DESC LIMIT ?",
+        (tenant_id, limit)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_fleet_stats():
+    """Returns overview statistics across all tenants for the master dashboard."""
+    conn = _get_conn()
+    tenants = conn.execute("SELECT * FROM tenants").fetchall()
+    fleet = []
+    for t in tenants:
+        t_id = t["id"]
+        user_count = conn.execute("SELECT COUNT(*) FROM tenant_users WHERE tenant_id=?", (t_id,)).fetchone()[0]
+        msg_count = conn.execute("SELECT SUM(message_count) FROM tenant_users WHERE tenant_id=?", (t_id,)).fetchone()[0] or 0
+        lead_count = conn.execute("SELECT COUNT(*) FROM tenant_leads WHERE tenant_id=?", (t_id,)).fetchone()[0]
+        fleet.append({
+            "id": t_id,
+            "name": t["name"],
+            "bot_phone": t["bot_phone"],
+            "owner_phone": t["owner_phone"],
+            "status": t["status"],
+            "users": user_count,
+            "messages": msg_count,
+            "leads": lead_count
+        })
+    conn.close()
+    return fleet
+
+
+# ── VIP / EXECUTIVE USER HELPER (Daniel D.TRINO) ──────────────────────────────
+
+def is_vip_copilot_user(sender):
+    """
+    Check if a sender on MAX's central line is registered as a VIP Copilot (e.g. Daniel).
+    VIPs get custom executive prompts, priority alarms, and unlimited messages.
+    """
+    user = get_tenant_user("main", sender)
+    if user and user.get("is_vip"):
+        return True
+    return False
+
+
+def set_user_vip_status(tenant_id, sender, is_vip=1):
+    ensure_tenant_user(tenant_id, sender)
+    update_tenant_user(tenant_id, sender, is_vip=is_vip, is_paid=1)
+
+
+# ── BACKWARD COMPATIBILITY LAYER (Delegates to tenant_id='main') ──────────────
+
+def get_user(sender):
+    return get_tenant_user("main", sender)
+
+def ensure_user(sender):
+    return ensure_tenant_user("main", sender)
+
+def tick_message(sender):
+    return tick_tenant_message("main", sender)
+
+def is_over_limit(sender, limit=20):
+    user = get_tenant_user("main", sender)
+    if not user or user["is_paid"] or user.get("is_vip"):
+        return False
+    if user["last_msg_date"] != str(date.today()):
+        return False
+    return user["daily_count"] >= limit
+
+def update_user(sender, **kwargs):
+    update_tenant_user("main", sender, **kwargs)
+
+def add_memory(sender, fact):
+    add_tenant_memory("main", sender, fact)
+
+def get_memory(sender):
+    return get_tenant_memory("main", sender)
+
+def save_conversation(sender, messages):
+    save_tenant_conversation("main", sender, messages)
+
+def load_conversation(sender):
+    return load_tenant_conversation("main", sender)
+
+def save_document(sender, text):
+    save_tenant_document("main", sender, text)
+
+def load_document(sender):
+    return load_tenant_document("main", sender)
+
+def save_lead(sender, message):
+    save_tenant_lead("main", sender, message)
+
 def get_all_senders():
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT sender FROM users WHERE sender NOT LIKE '%status%' AND sender NOT LIKE '%broadcast%'"
+        "SELECT sender FROM tenant_users WHERE tenant_id='main' AND sender NOT LIKE '%status%' AND sender NOT LIKE '%broadcast%'"
     ).fetchall()
     conn.close()
     return [r["sender"] for r in rows]
 
-
 def get_stats():
-    from datetime import date
     today = str(date.today())
     conn  = _get_conn()
-    total_users   = conn.execute("SELECT COUNT(*) FROM users WHERE sender NOT LIKE '%status%' AND sender NOT LIKE '%broadcast%'").fetchone()[0]
-    active_today  = conn.execute("SELECT COUNT(*) FROM users WHERE last_msg_date=? AND sender NOT LIKE '%status%' AND sender NOT LIKE '%broadcast%'", (today,)).fetchone()[0]
-    total_msgs    = conn.execute("SELECT SUM(message_count) FROM users WHERE sender NOT LIKE '%status%' AND sender NOT LIKE '%broadcast%'").fetchone()[0] or 0
-    total_leads   = conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
-    paid_users    = conn.execute("SELECT COUNT(*) FROM users WHERE is_paid=1").fetchone()[0]
+    total_users   = conn.execute("SELECT COUNT(*) FROM tenant_users WHERE tenant_id='main'").fetchone()[0]
+    active_today  = conn.execute("SELECT COUNT(*) FROM tenant_users WHERE tenant_id='main' AND last_msg_date=?", (today,)).fetchone()[0]
+    total_msgs    = conn.execute("SELECT SUM(message_count) FROM tenant_users WHERE tenant_id='main'").fetchone()[0] or 0
+    total_leads   = conn.execute("SELECT COUNT(*) FROM tenant_leads WHERE tenant_id='main'").fetchone()[0]
+    paid_users    = conn.execute("SELECT COUNT(*) FROM tenant_users WHERE tenant_id='main' AND is_paid=1").fetchone()[0]
     conn.close()
     return {
         "total_users":  total_users,
@@ -223,38 +619,27 @@ def get_stats():
         "paid_users":   paid_users
     }
 
-
 def get_recent_leads(limit=20):
-    conn = _get_conn()
-    rows = conn.execute(
-        """SELECT l.sender, l.message, l.timestamp, u.name
-           FROM leads l
-           LEFT JOIN users u ON l.sender = u.sender
-           ORDER BY l.id DESC LIMIT ?""", (limit,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
+    return get_tenant_leads("main", limit)
 
 def get_recent_users(limit=20):
     conn = _get_conn()
     rows = conn.execute(
         """SELECT sender, name, first_seen, message_count, daily_count, is_paid 
-           FROM users 
-           WHERE sender NOT LIKE '%status%' 
-           AND sender NOT LIKE '%broadcast%'
+           FROM tenant_users 
+           WHERE tenant_id='main'
            ORDER BY first_seen DESC LIMIT ?""",
         (limit,)
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
-
 def get_daily_message_stats(days=14):
     conn = _get_conn()
     rows = conn.execute("""
         SELECT last_msg_date as date, SUM(daily_count) as messages
-        FROM users
+        FROM tenant_users
+        WHERE tenant_id='main'
         GROUP BY last_msg_date
         ORDER BY last_msg_date DESC
         LIMIT ?
@@ -262,29 +647,11 @@ def get_daily_message_stats(days=14):
     conn.close()
     return [dict(r) for r in rows]
 
-
 def add_reminder(sender, task, remind_time):
-    now_str = str(date.today())
-    conn = _get_conn()
-    conn.execute("""
-        INSERT INTO reminders (sender, task, remind_time, created_at, is_sent)
-        VALUES (?, ?, ?, ?, 0)
-    """, (sender, task, int(remind_time), now_str))
-    conn.commit()
-    conn.close()
-
+    add_tenant_reminder("main", sender, task, remind_time)
 
 def get_due_reminders(current_time):
-    conn = _get_conn()
-    rows = conn.execute("""
-        SELECT * FROM reminders WHERE is_sent = 0 AND remind_time <= ?
-    """, (int(current_time),)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
+    return get_due_tenant_reminders(current_time)
 
 def mark_reminder_sent(reminder_id):
-    conn = _get_conn()
-    conn.execute("UPDATE reminders SET is_sent = 1 WHERE id = ?", (int(reminder_id),))
-    conn.commit()
-    conn.close()
+    mark_tenant_reminder_sent(reminder_id)

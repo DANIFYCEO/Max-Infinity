@@ -3,6 +3,8 @@
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 
 # Python
@@ -15,6 +17,7 @@ env/
 
 # Baileys auth (contains your WhatsApp session)
 baileys/auth_info/
+baileys/sessions/
 baileys/node_modules/
 
 # OS

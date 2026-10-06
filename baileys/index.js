@@ -1,281 +1,192 @@
-const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, downloadMediaMessage } = require('@whiskeysockets/baileys')
-const qrcode = require('qrcode-terminal')
-const axios  = require('axios')
-const http   = require('http')
+const express = require('express')
+const cors = require('cors')
+const sessionManager = require('./session_manager')
 
-const FLASK_URL    = process.env.FLASK_URL || 'http://localhost:5000/message'
-const BOT_START    = Math.floor(Date.now() / 1000)
+const app = express()
+app.use(cors())
+app.use(express.json({ limit: '50mb' }))
 
-let sock = null // global so /send endpoint can use it
+const PORT = process.env.PORT || 3001
 
-// ── Simple HTTP server for Flask to call back into Baileys ────────────────────
-const server = http.createServer(async (req, res) => {
-    if (req.method === 'POST' && req.url === '/send') {
-        let body = ''
-        req.on('data', chunk => body += chunk)
-        req.on('end', async () => {
-            try {
-                const { to, message, type, audio_bytes, image_bytes, sticker_bytes } = JSON.parse(body)
-                if (!sock || !to) {
-                    res.writeHead(400)
-                    return res.end('missing target or not connected')
-                }
-                if (type === 'audio' && audio_bytes) {
-                    const audioBuf = Buffer.from(audio_bytes, 'base64')
-                    const isOgg = audioBuf.slice(0, 4).toString() === 'OggS'
-                    await sock.sendMessage(to, {
-                        audio: audioBuf,
-                        mimetype: isOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg',
-                        ptt: isOgg ? true : false
-                    })
-                } else if (type === 'sticker' && sticker_bytes) {
-                    const stickerBuf = Buffer.from(sticker_bytes, 'base64')
-                    await sock.sendMessage(to, { sticker: stickerBuf })
-                } else if (type === 'image' && image_bytes) {
-                    const imgBuf = Buffer.from(image_bytes, 'base64')
-                    await sock.sendMessage(to, { image: imgBuf, caption: message || '' })
-                } else if (message) {
-                    await sock.sendMessage(to, { text: message })
-                }
-                res.writeHead(200)
-                res.end('ok')
-            } catch (e) {
-                res.writeHead(500)
-                res.end(e.message)
-            }
+// ── Health & Diagnostics ──────────────────────────────────────────────────────
+app.get('/health', (req, res) => {
+    const sessions = sessionManager.getAllSessions()
+    const connected = sessions.filter(s => s.status === 'connected')
+    res.json({
+        status: 'ok',
+        service: 'baileys-multi-tenant',
+        total_sessions: sessions.length,
+        connected_count: connected.length,
+        sessions
+    })
+})
+
+// ── List All Sessions ─────────────────────────────────────────────────────────
+app.get('/sessions', (req, res) => {
+    res.json({
+        status: 'ok',
+        sessions: sessionManager.getAllSessions()
+    })
+})
+
+// ── Get Single Session Details ────────────────────────────────────────────────
+app.get('/sessions/:tenant_id', (req, res) => {
+    const tenantId = req.params.tenant_id
+    const session = sessionManager.getSession(tenantId)
+    if (!session) {
+        return res.status(404).json({ status: 'error', message: 'Session not found' })
+    }
+    res.json({
+        status: 'ok',
+        tenant_id: tenantId,
+        status_text: session.status,
+        phone: session.phone,
+        pairing_code: session.pairingCode,
+        has_qr: !!session.qr,
+        qr: session.qr || null,
+        reconnect_attempts: session.reconnectAttempts || 0,
+        connected_at: session.connectedAt || null
+    })
+})
+
+// ── Initialize a Session ─────────────────────────────────────────────────────
+app.post('/sessions/:tenant_id/init', async (req, res) => {
+    const tenantId = req.params.tenant_id
+    const { phone_number } = req.body || {}
+    try {
+        const session = await sessionManager.initSession(tenantId, {
+            phoneNumber: phone_number
         })
-    } else if (req.method === 'GET' && req.url === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ status: 'ok', service: 'baileys', connected: !!sock }))
-    } else {
-        res.writeHead(404)
-        res.end()
+        res.json({
+            status: 'ok',
+            tenant_id: tenantId,
+            state: session.status
+        })
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: err.message })
     }
 })
 
-server.listen(3001, () => console.log('[BAILEYS] Send server listening on :3001'))
-
-// ── Message splitter ──────────────────────────────────────────────────────────
-function splitMessage(text, limit = 1500) {
-    const chunks = []
-    while (text.length > limit) {
-        let cut = text.lastIndexOf('\n', limit)
-        if (cut === -1) cut = limit
-        chunks.push(text.slice(0, cut).trim())
-        text = text.slice(cut).trim()
-    }
-    if (text) chunks.push(text)
-    return chunks
-}
-
-// ── Main bot ──────────────────────────────────────────────────────────────────
-const PHONE_NUMBER = process.env.PHONE_NUMBER || ''  // e.g. 2347042650401
-
-async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('./auth_info')
-    const usePairingCode = false // FORCING QR CODE MODE ONLY
-
-    sock = makeWASocket({
-        auth: state,
-        printQRInTerminal: !usePairingCode,
-        getMessage: async () => ({ conversation: '' }),
-        mediaUploadTimeoutMs: 120000
-    })
-
-    sock.ev.on('creds.update', saveCreds)
-
-    // Request pairing code instead of QR (for same-phone setup)
-    if (usePairingCode && !global.pairingRequested) {
-        global.pairingRequested = true
-        setTimeout(async () => {
-            try {
-                const code = await sock.requestPairingCode(PHONE_NUMBER)
-                console.log('\n══════════════════════════════════════════')
-                console.log('  📱 PAIRING CODE: ' + code)
-                console.log('══════════════════════════════════════════')
-                console.log('\n  On your phone:')
-                console.log('  WhatsApp → Linked Devices → Link a Device')
-                console.log('  → "Link with phone number instead"')
-                console.log('  → Enter this code: ' + code)
-                
-                // Send push notification to ntfy.sh
-                fetch('https://ntfy.sh/max_infinity_1234_pairing', {
-                    method: 'POST',
-                    body: `Your MAX-Infinity server restarted! New pairing code: ${code}`,
-                    headers: { 'Title': 'MAX-Infinity Pairing Code', 'Priority': 'high' }
-                }).catch(err => console.log('Failed to send ntfy notification', err.message))
-                console.log('')
-            } catch (e) {
-                console.error('[PAIRING] Error:', e.message)
-                global.pairingRequested = false
-            }
-        }, 3000)
+// ── Request 8-Digit Pairing Code ─────────────────────────────────────────────
+app.post('/sessions/:tenant_id/pair-code', async (req, res) => {
+    const tenantId = req.params.tenant_id
+    const { phone_number } = req.body || {}
+    if (!phone_number) {
+        return res.status(400).json({ status: 'error', message: 'phone_number is required' })
     }
 
-    sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
-        if (qr && !usePairingCode) {
-            console.log('\n📱 Scan this QR code with WhatsApp:\n')
-            qrcode.generate(qr, { small: true })
-            
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`
-            fetch('https://ntfy.sh/max_infinity_1234_pairing', {
-                method: 'POST',
-                body: `Click here to see your QR Code! Open it on a laptop/tablet and scan it with your phone! ${qrUrl}`,
-                headers: { 'Title': 'MAX-Infinity QR Code', 'Priority': 'high' }
-            }).catch(e => console.log('Failed to send ntfy QR', e.message))
-        }
-        if (connection === 'close') {
-            const code = lastDisconnect?.error?.output?.statusCode
-            if (code !== DisconnectReason.loggedOut) {
-                console.log('[BAILEYS] Reconnecting in 5 seconds...')
-                setTimeout(startBot, 5000)
-            } else {
-                console.log('[BAILEYS] Logged out. Delete auth_info folder and restart.')
+    const cleanPhone = phone_number.replace(/\D/g, '')
+
+    try {
+        await sessionManager.initSession(tenantId, {
+            phoneNumber: cleanPhone,
+            forcePairingCode: true
+        })
+
+        // Wait up to 5 seconds for pairing code to generate
+        let code = null
+        for (let i = 0; i < 10; i++) {
+            await new Promise(r => setTimeout(r, 500))
+            const session = sessionManager.getSession(tenantId)
+            if (session && session.pairingCode) {
+                code = session.pairingCode
+                break
+            }
+            if (session && session.status === 'connected') {
+                return res.json({ status: 'already_connected', tenant_id: tenantId })
             }
         }
-        if (connection === 'open') {
-            console.log('[BAILEYS] ✅ MAX∞ is live on WhatsApp!')
+
+        if (code) {
+            return res.json({
+                status: 'ok',
+                tenant_id: tenantId,
+                pairing_code: code,
+                instructions: 'On client phone: WhatsApp > Linked Devices > Link with phone number instead > Enter code'
+            })
         }
-    })
 
-    // ── Incoming Call Handler ──────────────────────────────────────────────────
-    sock.ev.on('call', async (calls) => {
-        for (const call of calls) {
-            if (call.status === 'offer') {
-                console.log(`[CALL] Incoming call from ${call.from} id=${call.id}`)
-                try {
-                    await sock.rejectCall(call.id, call.from)
+        res.json({
+            status: 'pending',
+            tenant_id: tenantId,
+            message: 'Pairing code is generating. Please query /sessions/' + tenantId + ' in a few seconds.'
+        })
 
-                    const caller = call.from.split(':')[0].split('@')[0] + '@s.whatsapp.net'
-                    const callUrl = `https://max-flask.onrender.com/call?user=${encodeURIComponent(caller)}`
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: err.message })
+    }
+})
 
-                    await sock.sendMessage(call.from, {
-                        text: `Hey! 👋 I can't take direct audio calls inside WhatsApp yet, but we can talk live right now! 🎙️✨\n\nTap here to start a live voice call with me:\n👉 ${callUrl}\n\n_(Microphone opens in your browser — talk to me just like a phone call!)_`
-                    })
-                    console.log(`[CALL] Rejected call & sent live call link to ${call.from}`)
-                } catch (err) {
-                    console.error('[CALL ERROR]', err.message)
-                }
-            }
-        }
-    })
+// ── Send Message on Specific Tenant Socket ───────────────────────────────────
+app.post('/sessions/:tenant_id/send', async (req, res) => {
+    const tenantId = req.params.tenant_id
+    const { to, message, type, audio_bytes, image_bytes, sticker_bytes, images, caption } = req.body || {}
 
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify') return
+    if (!to) {
+        return res.status(400).json({ status: 'error', message: 'Recipient "to" is required' })
+    }
 
-        for (const msg of messages) {
-            if (msg.key.fromMe) continue
+    try {
+        await sessionManager.sendToRecipient(tenantId, to, {
+            message,
+            type,
+            audio_bytes,
+            image_bytes,
+            sticker_bytes,
+            images,
+            caption
+        })
+        res.json({ status: 'ok', tenant_id: tenantId })
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: err.message })
+    }
+})
 
-            // Skip old/history messages
-            const msgTime = msg.messageTimestamp
-            if (msgTime && msgTime < BOT_START - 10) continue
+// ── Legacy Send Endpoint (Sends using default/main connected session) ────────
+app.post('/send', async (req, res) => {
+    const { to, message, type, audio_bytes, image_bytes, sticker_bytes, images, caption, tenant_id } = req.body || {}
+    const targetTenant = tenant_id || 'default'
 
-            const chatId = msg.key.remoteJid
-            const isGroup = chatId.endsWith('@g.us')
+    if (!to) {
+        return res.status(400).json({ status: 'error', message: 'Recipient "to" is required' })
+    }
 
-            // Skip status updates and broadcasts
-            if (chatId === 'status@broadcast' || chatId === 'status@s.whatsapp.net') continue
-            if (chatId.endsWith('@broadcast')) continue
+    try {
+        await sessionManager.sendToRecipient(targetTenant, to, {
+            message,
+            type,
+            audio_bytes,
+            image_bytes,
+            sticker_bytes,
+            images,
+            caption
+        })
+        res.json({ status: 'ok' })
+    } catch (err) {
+        res.status(500).json({ status: 'error', message: err.message })
+    }
+})
 
-            // For direct chats, remoteJid IS the real phone number (e.g. 2348163958919@s.whatsapp.net)
-            // For group chats, participant is the sender
-            let sender = isGroup
-                ? (msg.key.participant || chatId)
-                : chatId
+// ── Disconnect Session ────────────────────────────────────────────────────────
+app.post('/sessions/:tenant_id/disconnect', async (req, res) => {
+    const tenantId = req.params.tenant_id
+    const result = await sessionManager.disconnectSession(tenantId)
+    res.json(result)
+})
 
-            // Strip device suffix e.g. 2348163958919:27@s.whatsapp.net → 2348163958919@s.whatsapp.net
-            if (sender.includes(':') && sender.includes('@')) {
-                const parts = sender.split('@')
-                sender = parts[0].split(':')[0] + '@' + parts[1]
-            }
+// ── Delete Session (Purges Auth Data) ─────────────────────────────────────────
+app.post('/sessions/:tenant_id/delete', async (req, res) => {
+    const tenantId = req.params.tenant_id
+    const result = await sessionManager.deleteSession(tenantId)
+    res.json(result)
+})
 
-            // Use chatId as the canonical ID for direct chats (always has real number)
-            const canonicalId = isGroup ? sender : chatId.split(':')[0].split('@')[0] + '@s.whatsapp.net'
+// ── Start Server & Hydrate Saved Sessions ─────────────────────────────────────
+app.listen(PORT, async () => {
+    console.log(`\n==================================================`)
+    console.log(`  MAX∞ Multi-Session Gateway listening on :${PORT}`)
+    console.log(`==================================================\n`)
 
-            console.log(`[MSG] chatId=${chatId} sender=${sender} canonical=${canonicalId}`)
-
-            try {
-                let payload = { sender: canonicalId, chatId, type: 'text', text: '', name: msg.pushName || '' }
-
-                if (msg.message?.conversation) {
-                    payload.text = msg.message.conversation
-
-                } else if (msg.message?.extendedTextMessage) {
-                    payload.text = msg.message.extendedTextMessage.text
-
-                } else if (msg.message?.imageMessage) {
-                    const buf = await downloadMediaMessage(msg, 'buffer', {})
-                    payload.type      = 'image'
-                    payload.image_b64 = buf.toString('base64')
-                    payload.text      = msg.message.imageMessage.caption || ''
-
-                } else if (msg.message?.audioMessage || msg.message?.pttMessage) {
-                    // Voice notes
-                    const buf = await downloadMediaMessage(msg, 'buffer', {})
-                    payload.type      = 'audio'
-                    payload.audio_b64 = buf.toString('base64')
-                    payload.text      = ''
-
-                } else if (msg.message?.documentMessage) {
-                    const buf = await downloadMediaMessage(msg, 'buffer', {})
-                    payload.type      = 'document'
-                    payload.file_b64  = buf.toString('base64')
-                    payload.file_name = msg.message.documentMessage.fileName || 'file'
-                    payload.text      = msg.message.documentMessage.caption || ''
-
-                } else {
-                    console.log('[MSG] unsupported type, skipping')
-                    continue
-                }
-
-                const res    = await axios.post(FLASK_URL, payload, { timeout: 120000 })
-                const result = res.data
-
-                if (result.type === 'audio' && result.audio_bytes) {
-                    const audioBuf = Buffer.from(result.audio_bytes, 'base64')
-                    const isOgg = audioBuf.slice(0, 4).toString() === 'OggS'
-                    await sock.sendMessage(chatId, {
-                        audio: audioBuf,
-                        mimetype: isOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg',
-                        ptt: isOgg ? true : false
-                    })
-                    if (result.caption) {
-                        await sock.sendMessage(chatId, { text: result.caption })
-                    }
-                    console.log(`[SEND] voice note audio sent (isOgg=${isOgg})`)
-
-                } else if (result.type === 'sticker' && result.sticker_bytes) {
-                    const stickerBuf = Buffer.from(result.sticker_bytes, 'base64')
-                    await sock.sendMessage(chatId, {
-                        sticker: stickerBuf
-                    })
-                    console.log('[SEND] sticker sent')
-
-                } else if (result.type === 'image' && result.image_bytes) {
-                    const imgBuf = Buffer.from(result.image_bytes, 'base64')
-                    await sock.sendMessage(chatId, {
-                        image:   imgBuf,
-                        caption: result.caption || '✨'
-                    })
-                    console.log('[SEND] image sent')
-
-                } else if (result.reply) {
-                    const chunks = splitMessage(result.reply)
-                    for (const chunk of chunks) {
-                        await sock.sendMessage(chatId, { text: chunk })
-                    }
-                    console.log(`[SEND] ${chunks.length} chunk(s)`)
-                }
-
-            } catch (err) {
-                console.error('[ERROR]', err.message)
-                try {
-                    await sock.sendMessage(chatId, { text: "Something went wrong on my end. Try again in a moment." })
-                } catch (_) {}
-            }
-        }
-    })
-}
-
-console.log('Starting MAX∞...')
-startBot()
+    // Automatically revive any previously connected sessions on disk
+    await sessionManager.autoRestoreSessions()
+})
