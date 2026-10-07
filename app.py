@@ -42,6 +42,23 @@ from database import (
 load_dotenv()
 app = Flask(__name__)
 
+# ── CORS HEADERS (Support dashboard from any origin / local file) ────────────
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Key"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    return response
+
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        res = app.make_default_options_response()
+        res.headers["Access-Control-Allow-Origin"] = "*"
+        res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Key"
+        res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        return res
+
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 GROQ_API_KEY      = os.getenv("GROQ_API_KEY")

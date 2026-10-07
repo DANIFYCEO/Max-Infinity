@@ -525,7 +525,11 @@ footer{
 <script>
 const params = new URLSearchParams(location.search)
 const KEY = params.get('key') || 'faber2024'
-const api = p => `${p}${p.includes('?') ? '&' : '?'}key=${KEY}`
+// If opened as local file or different origin, target the Azure VM directly
+const SERVER_BASE = (location.protocol === 'file:' || location.origin === 'null' || !location.origin.includes(':5000'))
+  ? (params.get('server') || 'http://20.215.211.160:5000')
+  : ''
+const api = p => `${SERVER_BASE}${p}${p.includes('?') ? '&' : '?'}key=${KEY}`
 
 function openModal(id) { document.getElementById(id).style.display = 'flex' }
 function closeModal(id) { document.getElementById(id).style.display = 'none' }
@@ -737,15 +741,21 @@ async function activateVIP() {
   const phone = document.getElementById('vip-phone').value.trim()
   const statusEl = document.getElementById('vip-status')
   if (!phone) { alert("Enter a phone number"); return }
+  statusEl.textContent = "Activating VIP status..."
+  statusEl.style.color = "var(--yellow)"
   try {
-    const res = await (await fetch(api('/admin/vip'), {
+    const raw = await fetch(api('/admin/vip'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ sender: phone, is_vip: 1 })
-    })).json()
+    })
+    const res = await raw.json()
+    if (!raw.ok) throw new Error(res.error || raw.statusText)
     statusEl.textContent = `👑 VIP Status Active for ${res.sender} (Executive Co-Pilot enabled)`
+    statusEl.style.color = "var(--green)"
   } catch(e) {
     statusEl.textContent = "Error setting VIP: " + e.message
+    statusEl.style.color = "var(--red)"
   }
 }
 
