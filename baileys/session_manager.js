@@ -40,6 +40,30 @@ function splitMessage(text, limit = 1500) {
 class SessionManager {
     constructor() {
         this.sessions = new Map() // tenantId -> { sock, status, qr, pairingCode, phone, reconnectAttempts, manualStop }
+        this.humanTakeover = new Map() // key: `${tenantId}:${chatId}` -> timestamp
+    }
+
+    recordHumanActivity(tenantId, chatId, durationMs = 30 * 60 * 1000) {
+        const key = `${tenantId}:${chatId}`
+        this.humanTakeover.set(key, Date.now() + durationMs)
+        console.log(`[HUMAN TAKEOVER] Human activity detected on [${tenantId}] in ${chatId}. AI will stay silent for ${durationMs / 60000} mins.`)
+    }
+
+    isHumanTakeoverActive(tenantId, chatId) {
+        const key = `${tenantId}:${chatId}`
+        const expiry = this.humanTakeover.get(key)
+        if (!expiry) return false
+        if (Date.now() < expiry) {
+            return true
+        }
+        this.humanTakeover.delete(key)
+        return false
+    }
+
+    clearHumanTakeover(tenantId, chatId) {
+        const key = `${tenantId}:${chatId}`
+        this.humanTakeover.delete(key)
+        console.log(`[HUMAN TAKEOVER] Cleared takeover for [${tenantId}] in ${chatId}. AI is active.`)
     }
 
     getSession(tenantId) {
@@ -195,24 +219,50 @@ class SessionManager {
             if (type !== 'notify') return
 
             for (const msg of messages) {
-                if (msg.key.fromMe) continue
+                const chatId = msg.key.remoteJid
+                if (!chatId) continue
+
+                // ── 1. Human Activity & Takeover Commands (Sent from Charles's phone) ──
+                if (msg.key.fromMe) {
+                    const text = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || '').trim().toLowerCase()
+                    if (text === '!ai resume' || text === '!resume') {
+                        this.clearHumanTakeover(tenantId, chatId)
+                    } else if (text === '!ai pause' || text === '!pause') {
+                        this.recordHumanActivity(tenantId, chatId, 24 * 60 * 60 * 1000) // 24hr mute
+                    } else {
+                        // Charles is actively speaking with this customer:
+                        // Quiet the AI for 30 minutes so Charles can talk uninterrupted!
+                        this.recordHumanActivity(tenantId, chatId, 30 * 60 * 1000)
+                    }
+                    continue
+                }
+
+                // ── 2. Ignore Group Chats & Status Broadcasts ──────────────────────────
+                const isGroup = chatId.endsWith('@g.us')
+                if (isGroup) {
+                    // Business bots NEVER interfere in group chats
+                    continue
+                }
+                if (chatId === 'status@broadcast' || chatId === 'status@s.whatsapp.net' || chatId.endsWith('@broadcast')) {
+                    continue
+                }
+
+                // ── 3. Check Live Human Takeover (Zero Interference Guard) ─────────────
+                if (this.isHumanTakeoverActive(tenantId, chatId)) {
+                    console.log(`[ZERO-INTERFERENCE] [${tenantId}] Human active in ${chatId}. AI will NOT reply.`)
+                    continue
+                }
 
                 const msgTime = msg.messageTimestamp
                 if (msgTime && msgTime < BOT_START - 10) continue
 
-                const chatId = msg.key.remoteJid
-                if (!chatId) continue
-
-                const isGroup = chatId.endsWith('@g.us')
-                if (chatId === 'status@broadcast' || chatId === 'status@s.whatsapp.net' || chatId.endsWith('@broadcast')) continue
-
-                let sender = isGroup ? (msg.key.participant || chatId) : chatId
+                let sender = chatId
                 if (sender.includes(':') && sender.includes('@')) {
                     const parts = sender.split('@')
                     sender = parts[0].split(':')[0] + '@' + parts[1]
                 }
 
-                const canonicalId = isGroup ? sender : chatId.split(':')[0].split('@')[0] + '@s.whatsapp.net'
+                const canonicalId = chatId.split(':')[0].split('@')[0] + '@s.whatsapp.net'
 
                 console.log(`[MSG] [${tenantId}] chatId=${chatId} sender=${sender}`)
 
