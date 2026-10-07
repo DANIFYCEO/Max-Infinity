@@ -632,13 +632,18 @@ MEMORY_TRIGGERS = [
 
 def clean_whatsapp_format(text: str) -> str:
     """
-    Cleans raw LLM markdown into beautiful, native WhatsApp formatting:
+    Cleans raw LLM markdown into beautiful, 100% compliant native WhatsApp formatting:
     - Converts ugly Markdown tables (| col1 | col2 |) into clean bullet steps/key-values.
     - Converts markdown headers (###, ##, #) into bold headings (*Heading*).
     - Removes raw markdown horizontal rules (---, ***, ___).
     - Converts double/triple asterisks (**bold**) into single asterisks (*bold*).
-    - Converts markdown dash/asterisk bullets (- list, * list) into clean unicode bullets (• list).
-    - Normalizes spacing (removes 3+ consecutive newlines, trims whitespace).
+    - Shifts emojis trapped inside asterisks to OUTSIDE (*1️⃣ Title:* -> 1️⃣ *Title:*).
+      (Crucial: WhatsApp mobile parser breaks when asterisks touch emojis, leaving literal asterisks!)
+    - Strips quotes touching asterisks (*"word"* -> *word*).
+    - Trims spaces inside asterisks (* bold * -> *bold*).
+    - Strips unnecessary mid-sentence asterisks around single words (e.g. 'the *Campos* app' -> 'the Campos app').
+    - Ensures no unmatched/dangling asterisks or underscores break formatting.
+    - Normalizes spacing (removes 3+ consecutive newlines, trims trailing whitespace).
     """
     if not text:
         return ""
@@ -693,28 +698,68 @@ def clean_whatsapp_format(text: str) -> str:
     # 3. Convert markdown headers (### Heading or ## Heading) to bold lines
     def fix_header(match):
         header_text = match.group(1).strip()
-        header_text = header_text.strip('*')
+        header_text = header_text.strip('*_# ')
         return f"\n*{header_text}*\n"
 
     text = re.sub(r'^[ \t]*#{1,6}[ \t]+(.*)$', fix_header, text, flags=re.MULTILINE)
 
-    # 4. Convert quotes inside asterisks/underscores to clean bold
-    text = re.sub(r'[\*\_]+[\"\']([^\"\'\*\_]+)[\"\'][\*\_]+', r'*\1*', text)
+    # 4. Clean quotes inside asterisks/underscores to clean bold/italics
+    # Quotes directly touching asterisks break WhatsApp mobile parser (*"word"* -> *word*)
+    text = re.sub(r'[\*]+[\"\']([^\"\'\*]+)[\"\'][\*]+', r'*\1*', text)
+    text = re.sub(r'[\_]+[\"\']([^\"\'\_]+)[\"\'][\_]+', r'_\1_', text)
 
-    # Convert any 2 or more asterisks (**, ***) to single asterisk (WhatsApp bold)
+    # 5. Convert 2 or more asterisks (**, ***) to single asterisk
     text = re.sub(r'\*{2,}\s*([^\*\n]+?)\s*\*{2,}', r'*\1*', text)
-
-    # Clean single asterisks with inner spaces so WhatsApp renders bold
-    text = re.sub(r'(\s|^)\*\s*([^\*\n]+?)\s*\*(\s|$|[.,!?:;])', r'\1*\2*\3', text)
-
-    # Completely remove any orphan double asterisks
     text = text.replace('**', '')
 
-    # 5. Convert list bullet asterisks/hyphens at line starts to clean bullet '• '
+    # 6. Move emojis / symbols trapped INSIDE opening asterisks to OUTSIDE:
+    # *1️⃣ Title:* -> 1️⃣ *Title:*
+    # *📱 Step 1:* -> 📱 *Step 1:*
+    # *📌 Note:* -> 📌 *Note:*
+    emoji_shift_pattern = r'(\s|^)\*([0-9]️⃣|[•🔹🔸▪️▫️▶️➡️\U00010000-\U0010ffff\u2600-\u26ff\u2700-\u27bf]+)\s*([^\*\n]+?)\*'
+    text = re.sub(emoji_shift_pattern, r'\1\2 *\3*', text)
+
+    # 7. Ensure clean spacing inside asterisks & underscores so WhatsApp mobile parser bolds properly
+    text = re.sub(r'(\s|^)\*\s+([^\*\n]+?)\s*\*(\s|$|[.,!?:;])', r'\1*\2*\3', text)
+    text = re.sub(r'(\s|^)\*\s+([^\*\n]+?)\*(\s|$|[.,!?:;])', r'\1*\2*\3', text)
+    text = re.sub(r'(\s|^)\*([^\*\n]+?)\s+\*(\s|$|[.,!?:;])', r'\1*\2*\3', text)
+    text = re.sub(r'(\s|^)\_\s+([^\_\n]+?)\s*\_(\s|$|[.,!?:;])', r'\1_\2_\3', text)
+
+    # 8. Clean unwanted mid-sentence single-word asterisks (e.g. 'the *Campos* app' -> 'the Campos app')
+    # Keep bold for step labels ('*Step 1:*'), headers ending in ':', or entire lines that are headers
+    def clean_line_bolds(line):
+        if re.match(r'^[ \t]*(\•|\-|\*|[0-9]+\.|\d+️⃣)?[ \t]*\*[^\*\n]+\*[ \t]*$', line):
+            return line
+
+        def repl(m):
+            content = m.group(1)
+            # Keep if ends with colon or starts with step
+            if content.strip().endswith(':') or content.lower().strip().startswith('step'):
+                return f"*{content}*"
+            # If it is 1-3 words embedded inside a sentence, strip asterisks
+            if len(content.strip().split()) <= 3:
+                return content
+            return f"*{content}*"
+
+        return re.sub(r'\*([^\*\n]+?)\*', repl, line)
+
+    cleaned_bold_lines = [clean_line_bolds(l) for l in text.split('\n')]
+    text = '\n'.join(cleaned_bold_lines)
+
+    # 9. Clean single words wrapped in asterisks after prepositions: "Welcome to *Campos*! 👋" -> "Welcome to Campos! 👋"
+    text = re.sub(r'(to|at|in|on|with|for|about|the|a|an)\s+\*([A-Za-z0-9_-]+)\*(\s|[.,!?:;]|$)', r'\1 \2\3', text, flags=re.IGNORECASE)
+
+    # 10. Convert list bullet asterisks/hyphens at line starts to clean bullet '• '
     text = re.sub(r'^[ \t]*[\-][ \t]+', r'• ', text, flags=re.MULTILINE)
     text = re.sub(r'^[ \t]*\*[ \t]+(?!\*)', r'• ', text, flags=re.MULTILINE)
 
-    # 6. Normalize spacing: max 2 consecutive newlines, strip trailing spaces
+    # 11. Guard against dangling / unmatched asterisks or underscores (odd count)
+    if text.count('*') % 2 != 0:
+        text = re.sub(r'\*(?=[^\*]*$)', '', text)
+    if text.count('_') % 2 != 0:
+        text = re.sub(r'\_(?=[^\_]*$)', '', text)
+
+    # 12. Normalize spacing: max 2 consecutive newlines, strip trailing spaces
     cleaned_lines = [l.rstrip() for l in text.split('\n')]
     text = '\n'.join(cleaned_lines)
     text = re.sub(r'\n{3,}', '\n\n', text)
@@ -788,10 +833,10 @@ def get_tenant_ai_response(tenant_id: str, sender: str, message: str) -> tuple[s
             reply = reply.replace("GUIDE_IMAGE: download_materials", "").strip()
             dl_dir = os.path.join(campos_dir, 'download_materials')
             steps = [
-                ("step1_home_search.jpg", "📱 *Step 1:* On Home screen, tap the search bar *'Search over 5000 materials'* to enter the Materials Bank."),
+                ("step1_home_search.jpg", "📱 *Step 1:* On Home screen, tap the search bar *Search over 5000 materials* to enter the Materials Bank."),
                 ("step2_filter_icon.jpg", "🔍 *Step 2:* In the Materials Bank, tap the filter icon in the top right corner."),
-                ("step3_select_school_level.jpg", "🎓 *Step 3:* Filter by *'My School'* or your level (100L, 200L, 300L, etc.) to browse past questions & notes."),
-                ("step4_profile_library.jpg", "📚 *Step 4:* Downloaded files appear right inside *'My Library'* in your Profile tab!")
+                ("step3_select_school_level.jpg", "🎓 *Step 3:* Filter by *My School* or your level (100L, 200L, 300L, etc.) to browse past questions & notes."),
+                ("step4_profile_library.jpg", "📚 *Step 4:* Downloaded files appear right inside *My Library* in your Profile tab!")
             ]
             for fname, cap in steps:
                 fpath = os.path.join(dl_dir, fname)
@@ -807,8 +852,8 @@ def get_tenant_ai_response(tenant_id: str, sender: str, message: str) -> tuple[s
             reply = reply.replace("GUIDE_IMAGE: become_vendor", "").strip()
             v_dir = os.path.join(campos_dir, 'become_vendor')
             steps = [
-                ("step1_marketplace_vendor_button.jpg", "🛍️ *Step 1:* On the Marketplace screen, tap the floating *'Become a Vendor'* button."),
-                ("step2_start_selling_now.jpg", "🚀 *Step 2:* Review vendor perks and tap *'Start Selling NOW!'* (Currently FREE promo!).")
+                ("step1_marketplace_vendor_button.jpg", "🛍️ *Step 1:* On the Marketplace screen, tap the floating *Become a Vendor* button."),
+                ("step2_start_selling_now.jpg", "🚀 *Step 2:* Review vendor perks and tap *Start Selling NOW!* (Currently FREE promo!).")
             ]
             for fname, cap in steps:
                 fpath = os.path.join(v_dir, fname)
