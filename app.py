@@ -1003,6 +1003,11 @@ def message():
                     return jsonify({
                         "reply": f"🧾 *Payment Proof Received!*\n\nThank you so much! Princess (Eby) has been notified to verify your payment for order *#{pending_order['order_code']}*. Once confirmed, your order status will be updated to *Payment confirmed*. ✨"
                     })
+                elif not text:
+                    save_tenant_lead(tenant_id, sender, "Customer sent an image / photo")
+                    return jsonify({
+                        "reply": "Thank you for sending the photo! ✨\n\n• If this is a payment receipt, please reply with your Order Reference (e.g. *#EBY-1001*) or your name so I can confirm it!\n• If this is a photo of your skin or a product you want, feel free to describe what you're looking for, or choose *6️⃣ Talk to Eby* so Princess can check it directly! 💕"
+                    })
 
             # Check lead capture (admissions, vendor signups, beauty orders, contacts)
             phone_pattern = re.compile(r'(\+?234|0)[789]\d{9}')
@@ -1050,8 +1055,17 @@ def message():
                     print(f"[ORDER CREATION ERROR] {e_order}")
 
             # ── Check TALK_TO_EBY / Human Handover trigger
-            if "TALK_TO_EBY:" in reply or (tenant_id == "eby_beauty" and any(k in text.lower() for k in ["talk to eby", "speak to eby", "speak with eby", "talk to princess", "speak to princess"])):
+            is_handover = False
+            handover_triggers = ["talk to eby", "speak to eby", "speak with eby", "talk to princess", "speak to princess", "chat with eby", "contact eby"]
+            if "TALK_TO_EBY:" in reply or (tenant_id == "eby_beauty" and (text.strip() in ["6", "option 6", "talk to eby"] or any(k in text.lower() for k in handover_triggers))):
                 reply = re.sub(r'TALK_TO_EBY:[^\n]*', '', reply).strip()
+                if not reply or "connecting you with eby" not in reply.lower():
+                    reply = "👩‍💼 *Connecting you with Eby...*\n\nI have notified Princess (Eby) right away! She will step in and message you directly here shortly. Please feel free to leave any extra details, questions, or photos here in the meantime! 💕"
+                is_handover = True
+                try:
+                    save_tenant_lead(tenant_id, sender, f"Human handover requested: {text or 'Option 6 - Talk to Eby'}")
+                except Exception as e_lh:
+                    print(f"[HANDOVER LEAD ERROR] {e_lh}")
 
             # Check reminder trigger
             if reply.strip().startswith("SET_REMINDER:"):
@@ -1068,6 +1082,9 @@ def message():
                     print(f"[REMINDER PARSE ERROR] {e}")
 
             resp = {"reply": reply}
+            if is_handover:
+                resp["handover"] = True
+                resp["pause_ai"] = 2 * 60 * 60 * 1000  # 2 hours silence so Princess can chat uninterrupted
             if guide_images:
                 resp["images"] = guide_images
             return jsonify(resp)

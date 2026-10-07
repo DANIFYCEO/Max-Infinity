@@ -348,6 +348,12 @@ class SessionManager {
                     const res = await axios.post(FLASK_URL, payload, { timeout: 120000 })
                     const result = res.data
 
+                    if (result && (result.handover || result.pause_ai)) {
+                        const pauseMs = result.pause_ai || (2 * 60 * 60 * 1000)
+                        this.recordHumanActivity(tenantId, chatId, pauseMs)
+                        console.log(`[HANDOVER MUTE] [${tenantId}] Human takeover active in ${chatId} for ${pauseMs / 60000} mins.`)
+                    }
+
                     await this.dispatchResponse(tenantId, chatId, result)
 
                 } catch (err) {
