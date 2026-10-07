@@ -949,7 +949,12 @@ def message():
                 update_tenant_user(tenant_id, sender, onboarded=1)
                 cfg = get_tenant_config(tenant_id)
                 welcome = (cfg.get("welcome_message") if cfg else "") or "Hello! How can I help you today?"
-                return jsonify({"reply": clean_whatsapp_format(welcome)})
+                clean_welcome = clean_whatsapp_format(welcome)
+                save_tenant_conversation(tenant_id, sender, [
+                    {"role": "user", "content": text or "Hi"},
+                    {"role": "assistant", "content": clean_welcome}
+                ])
+                return jsonify({"reply": clean_welcome})
 
             # Check for voice note transcription
             if msg_type == "audio":
