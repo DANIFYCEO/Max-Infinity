@@ -40,7 +40,8 @@ from database import (
     get_detailed_users, get_all_reminders, get_all_leads,
     create_tenant_order, get_tenant_order_by_code, get_tenant_orders,
     get_tenant_customer_orders, update_tenant_order_status, mark_tenant_order_payment_proof,
-    get_tenant_products, add_tenant_product, update_tenant_product, delete_tenant_product
+    get_tenant_products, add_tenant_product, update_tenant_product, delete_tenant_product,
+    _get_conn
 )
 
 load_dotenv()
@@ -1468,7 +1469,7 @@ def admin_reminders():
 def admin_conversations():
     if not admin_auth():
         return jsonify({"error": "unauthorized"}), 401
-    conn = database._get_conn()
+    conn = _get_conn()
     rows = conn.execute("SELECT tenant_id, sender, messages, updated_at FROM tenant_conversations ORDER BY updated_at DESC LIMIT 10").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
