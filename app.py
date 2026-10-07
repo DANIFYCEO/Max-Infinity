@@ -1464,6 +1464,15 @@ def admin_reminders():
     limit = int(request.args.get("limit", 50))
     return jsonify(get_all_reminders(limit=limit))
 
+@app.route("/admin/conversations")
+def admin_conversations():
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    conn = database._get_conn()
+    rows = conn.execute("SELECT tenant_id, sender, messages, updated_at FROM tenant_conversations ORDER BY updated_at DESC LIMIT 10").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
 @app.route("/admin/orders")
 def admin_orders():
     if not admin_auth():
