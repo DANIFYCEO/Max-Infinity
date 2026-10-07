@@ -183,6 +183,13 @@ def init_db():
         )
     """)
 
+    # Safe migrations for existing tenant_users table
+    for col, col_type in [("onboarded", "INTEGER DEFAULT 0"), ("is_vip", "INTEGER DEFAULT 0")]:
+        try:
+            c.execute(f"ALTER TABLE tenant_users ADD COLUMN {col} {col_type}")
+        except Exception:
+            pass
+
     conn.commit()
     conn.close()
 
