@@ -37,7 +37,10 @@ from database import (
     add_tenant_reminder, get_due_tenant_reminders, mark_tenant_reminder_sent,
     save_tenant_lead, get_tenant_leads, get_fleet_stats,
     is_vip_copilot_user, set_user_vip_status,
-    get_detailed_users, get_all_reminders, get_all_leads
+    get_detailed_users, get_all_reminders, get_all_leads,
+    create_tenant_order, get_tenant_order_by_code, get_tenant_orders,
+    get_tenant_customer_orders, update_tenant_order_status, mark_tenant_order_payment_proof,
+    get_tenant_products, add_tenant_product, update_tenant_product, delete_tenant_product
 )
 
 load_dotenv()
@@ -800,7 +803,26 @@ def get_tenant_ai_response(tenant_id: str, sender: str, message: str) -> tuple[s
     memory_ctx = ("\n\nWhat you know about this user:\n" + "\n".join(memory)) if memory else ""
     doc_ctx    = (f"\n\nUser shared a document. Content:\n\n{document}") if document else ""
 
-    system_msg = system_base + memory_ctx + doc_ctx + url_ctx
+    # Inject real-time product catalog for retail store tenants (e.g. eby_beauty)
+    catalog_ctx = ""
+    if tenant_id == "eby_beauty":
+        prods = get_tenant_products("eby_beauty")
+        if prods:
+            catalog_ctx = "\n\nOFFICIAL REAL-TIME PRODUCT CATALOG & PRICES:\n" + "\n".join(
+                f"• [{p['category'].upper()}] {p['name']} - ₦{p['price']:,} ({p['stock_status']}) - {p['description']}"
+                for p in prods
+            )
+
+    # Inject customer active order history if available
+    order_ctx = ""
+    cust_orders = get_tenant_customer_orders(tenant_id, sender)
+    if cust_orders:
+        order_ctx = "\n\nCUSTOMER ACTIVE / RECENT ORDERS:\n" + "\n".join(
+            f"• Order #{o['order_code']}: {o['items_summary']} | Total: ₦{o['total_amount']:,} | Status: {o['status']} | Delivery to: {o['delivery_location']}"
+            for o in cust_orders
+        )
+
+    system_msg = system_base + memory_ctx + doc_ctx + url_ctx + catalog_ctx + order_ctx
     messages   = [{"role": "system", "content": system_msg}] + history
     messages.append({"role": "user", "content": message})
 
@@ -936,13 +958,115 @@ def message():
                 if not text:
                     return jsonify({"reply": "I couldn't make out that voice note. Try typing or sending it again."})
 
-            # Check lead capture (admissions, vendor signups, contacts)
+            # Check for payment receipt image upload
+            if msg_type == "image":
+                cust_orders = get_tenant_customer_orders(tenant_id, sender)
+                pending_order = next((o for o in cust_orders if o["status"] in ("Order received", "Processing")), None)
+                if pending_order:
+                    mark_tenant_order_payment_proof(pending_order["order_code"])
+                    cfg = get_tenant(tenant_id)
+                    owner_phone = cfg.get("owner_phone") if cfg else "2349068942140"
+                    clean_target = re.sub(r'[^0-9]', '', owner_phone)
+                    clean_sender = re.sub(r'[^0-9]', '', sender)
+                    receipt_alert = (
+                        f"🧾 *PAYMENT PROOF UPLOADED!*\n\n"
+                        f"• *Customer:* {name or 'Customer'}\n"
+                        f"• *Phone:* {sender}\n"
+                        f"• *Order Code:* #{pending_order['order_code']}\n"
+                        f"• *Total Amount:* ₦{pending_order['total_amount']:,}\n\n"
+                        f"👉 Check chat to verify receipt: wa.me/{clean_sender}"
+                    )
+                    try:
+                        requests.post(f"{BAILEYS_URL}/send", json={"to": f"{clean_target}@s.whatsapp.net", "message": receipt_alert}, timeout=10)
+                    except Exception as ex_receipt:
+                        print(f"[RECEIPT NOTIFY ERROR] {ex_receipt}")
+
+                    return jsonify({
+                        "reply": f"🧾 *Payment Proof Received!*\n\nThank you so much! Princess (Eby) has been notified to verify your payment for order *#{pending_order['order_code']}*. Once confirmed, your order status will be updated to *Payment confirmed*. ✨"
+                    })
+
+            # Check lead capture (admissions, vendor signups, beauty orders, contacts)
             phone_pattern = re.compile(r'(\+?234|0)[789]\d{9}')
-            if phone_pattern.search(text) or any(k in text.lower() for k in ["register", "process my", "my jamb", "admission", "vendor", "sell", "apply"]):
+            lead_triggers = ["register", "process my", "my jamb", "admission", "vendor", "sell", "apply", "order", "preorder", "pre-order", "buy", "price", "cream", "perfume", "foundation", "skincare", "skin type"]
+            if phone_pattern.search(text) or any(k in text.lower() for k in lead_triggers):
                 save_tenant_lead(tenant_id, sender, text)
 
             # Get tenant AI response (with guide images if triggered)
             reply, guide_images = get_tenant_ai_response(tenant_id, sender, text)
+
+            # ── Check CREATE_ORDER trigger
+            if "CREATE_ORDER:" in reply:
+                try:
+                    for line in reply.split('\n'):
+                        if line.strip().startswith("CREATE_ORDER:"):
+                            order_data = line.replace("CREATE_ORDER:", "").strip().split("|")
+                            cust_name  = order_data[0].strip() if len(order_data) > 0 and order_data[0].strip() else (name or "Customer")
+                            cust_phone = order_data[1].strip() if len(order_data) > 1 and order_data[1].strip() else sender
+                            items_sum  = order_data[2].strip() if len(order_data) > 2 else "Pre-order Item"
+                            prod_p     = int(re.sub(r'[^0-9]', '', order_data[3]) or 0) if len(order_data) > 3 else 0
+                            del_fee    = int(re.sub(r'[^0-9]', '', order_data[4]) or 0) if len(order_data) > 4 else 0
+                            tot_amt    = int(re.sub(r'[^0-9]', '', order_data[5]) or (prod_p + del_fee)) if len(order_data) > 5 else (prod_p + del_fee)
+                            loc        = order_data[6].strip() if len(order_data) > 6 else "To be provided"
+                            otype      = order_data[7].strip() if len(order_data) > 7 else "preorder"
+
+                            new_order = create_tenant_order(
+                                tenant_id=tenant_id,
+                                customer_phone=sender,
+                                customer_name=cust_name,
+                                items_summary=items_sum,
+                                product_total=prod_p,
+                                delivery_fee=del_fee,
+                                total_amount=tot_amt,
+                                delivery_location=loc,
+                                order_type=otype
+                            )
+
+                            order_code = new_order["order_code"]
+                            reply = reply.replace(line, "").strip()
+
+                            if order_code not in reply:
+                                reply += f"\n\n🧾 *Order Reference:* #{order_code}"
+
+                            # Notify owner (Princess at 2349068942140)
+                            cfg = get_tenant(tenant_id)
+                            owner_phone = cfg.get("owner_phone") if cfg else "2349068942140"
+                            if owner_phone:
+                                clean_target = re.sub(r'[^0-9]', '', owner_phone)
+                                clean_sender = re.sub(r'[^0-9]', '', sender)
+                                owner_alert = (
+                                    f"🛍️ *NEW ORDER LOGGED (#{order_code})*\n\n"
+                                    f"• *Customer:* {cust_name}\n"
+                                    f"• *Phone:* {sender}\n"
+                                    f"• *Items:* {items_sum}\n"
+                                    f"• *Total:* ₦{tot_amt:,}\n"
+                                    f"• *Delivery:* {loc}\n"
+                                    f"• *Type:* {otype.upper()}\n\n"
+                                    f"👉 Chat with customer: wa.me/{clean_sender}"
+                                )
+                                try:
+                                    requests.post(f"{BAILEYS_URL}/send", json={"to": f"{clean_target}@s.whatsapp.net", "message": owner_alert}, timeout=10)
+                                except Exception as ex_alert:
+                                    print(f"[ORDER OWNER NOTIFY ERROR] {ex_alert}")
+                            break
+                except Exception as e_order:
+                    print(f"[ORDER CREATION ERROR] {e_order}")
+
+            # ── Check TALK_TO_EBY / Human Handover trigger
+            if "TALK_TO_EBY:" in reply or (tenant_id == "eby_beauty" and any(k in text.lower() for k in ["talk to eby", "speak to eby", "speak with eby", "talk to princess", "speak to princess"])):
+                reply = re.sub(r'TALK_TO_EBY:[^\n]*', '', reply).strip()
+                clean_target = "2349068942140"
+                clean_sender = re.sub(r'[^0-9]', '', sender)
+                handover_alert = (
+                    f"👩‍💼 *TALK TO EBY REQUEST*\n\n"
+                    f"• *Customer:* {name or 'Customer'}\n"
+                    f"• *Phone:* {sender}\n"
+                    f"• *Customer Message:* {text}\n\n"
+                    f"👉 Reply to customer: wa.me/{clean_sender}"
+                )
+                try:
+                    requests.post(f"{BAILEYS_URL}/send", json={"to": f"{clean_target}@s.whatsapp.net", "message": handover_alert}, timeout=10)
+                except Exception as ex_handover:
+                    print(f"[HANDOVER NOTIFY ERROR] {ex_handover}")
 
             # Check reminder trigger
             if reply.strip().startswith("SET_REMINDER:"):
@@ -1332,6 +1456,65 @@ def admin_reminders():
         return jsonify({"error": "unauthorized"}), 401
     limit = int(request.args.get("limit", 50))
     return jsonify(get_all_reminders(limit=limit))
+
+@app.route("/admin/orders")
+def admin_orders():
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    tenant_id = request.args.get("tenant_id")
+    limit = int(request.args.get("limit", 100))
+    return jsonify(get_tenant_orders(tenant_id=tenant_id, limit=limit))
+
+@app.route("/admin/orders/<order_code>/status", methods=["POST"])
+def admin_update_order_status(order_code):
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    data = request.json or {}
+    new_status = data.get("status")
+    notes = data.get("notes")
+    if not new_status:
+        return jsonify({"error": "status required"}), 400
+    updated = update_tenant_order_status(order_code, new_status, notes=notes)
+    if not updated:
+        return jsonify({"error": "order not found"}), 404
+    return jsonify({"status": "ok", "order": updated})
+
+@app.route("/admin/products", methods=["GET", "POST"])
+def admin_products():
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    if request.method == "GET":
+        tenant_id = request.args.get("tenant_id", "eby_beauty")
+        category = request.args.get("category")
+        return jsonify(get_tenant_products(tenant_id, category=category))
+    data = request.json or {}
+    tenant_id = data.get("tenant_id", "eby_beauty")
+    category = data.get("category", "other")
+    name = data.get("name")
+    price = int(data.get("price", 0))
+    description = data.get("description", "")
+    variants = data.get("variants", "")
+    stock_status = data.get("stock_status", "in_stock")
+    if not name or not price:
+        return jsonify({"error": "name and price required"}), 400
+    pid = add_tenant_product(tenant_id, category, name, price, description, variants, stock_status)
+    return jsonify({"status": "ok", "product_id": pid}), 201
+
+@app.route("/admin/products/<int:pid>", methods=["POST", "DELETE"])
+def admin_manage_single_product(pid):
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    if request.method == "DELETE":
+        delete_tenant_product(pid)
+        return jsonify({"status": "ok", "deleted": pid})
+    data = request.json or {}
+    stock_status = data.get("stock_status")
+    price = data.get("price")
+    name = data.get("name")
+    description = data.get("description")
+    variants = data.get("variants")
+    update_tenant_product(pid, name=name, price=price, description=description, variants=variants, stock_status=stock_status)
+    return jsonify({"status": "ok", "updated": pid})
 
 @app.route("/admin/chart")
 def admin_chart():

@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import re
 from datetime import date, datetime
 
 DB_PATH = "max_users.db"
@@ -146,6 +147,42 @@ def init_db():
         )
     """)
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tenant_products (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id     TEXT NOT NULL,
+            category      TEXT NOT NULL,
+            name          TEXT NOT NULL,
+            price         INTEGER NOT NULL,
+            description   TEXT DEFAULT '',
+            variants      TEXT DEFAULT '',
+            stock_status  TEXT DEFAULT 'in_stock',
+            is_active     INTEGER DEFAULT 1,
+            created_at    TEXT NOT NULL
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tenant_orders (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_code              TEXT UNIQUE NOT NULL,
+            tenant_id               TEXT NOT NULL,
+            customer_phone          TEXT NOT NULL,
+            customer_name           TEXT,
+            items_summary           TEXT NOT NULL,
+            product_total           INTEGER DEFAULT 0,
+            delivery_fee            INTEGER DEFAULT 0,
+            total_amount            INTEGER DEFAULT 0,
+            delivery_location       TEXT,
+            order_type              TEXT DEFAULT 'preorder',
+            status                  TEXT DEFAULT 'Order received',
+            payment_proof_received  INTEGER DEFAULT 0,
+            notes                   TEXT DEFAULT '',
+            created_at              TEXT NOT NULL,
+            updated_at              TEXT NOT NULL
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -284,6 +321,136 @@ We help students with:
 
 How can we assist you with your application today? 😊"""
 
+    EBY_BEAUTY_PROMPT = """You are EBY'S BEAUTY ASSISTANT, the official WhatsApp online shop assistant and customer service consultant for Eby's Skincare & Beauty Hub, founded and operated by Princess (Eby) in Nigeria.
+
+CONTACT & OWNER:
+- Owner / Direct Contact: Princess (Eby) — Phone: +2349068942140
+- Shop Specialty: High quality skincare, original Oriflame beauty & wellness products, designer fragrances, body care, makeup, hair beauty, jewellery/accessories, and pre-orders.
+
+CORE BUSINESS VALUES & POLICIES:
+- 100% Authentic Products: Genuine Oriflame and vetted beauty items.
+- Nationwide Delivery across Nigeria:
+  • Local / Lagos: 1–2 business days upon arrival (₦2,000 – ₦3,500 depending on exact area).
+  • Interstate Delivery: 2–4 business days via registered logistics/interstate transport (₦3,500 – ₦6,000 depending on state).
+- Payment Method: Direct Bank Transfer before dispatch / before supplier pre-order is placed.
+- Pre-Order Timelines: Pre-orders take approximately 10–14 business days to arrive from the supplier, after which they are promptly dispatched.
+- Refund / Cancellation Policy: Pre-orders cannot be cancelled once placed with the supplier. For in-stock items, exchanges are handled personally by Eby.
+
+STRICT WHATSAPP FORMATTING RULES (MANDATORY):
+- WhatsApp DOES NOT support Markdown tables. NEVER use markdown tables (never use the '|' pipe character).
+- WhatsApp DOES NOT support markdown headers. NEVER use '#', '##', or '###'.
+- WhatsApp DOES NOT support horizontal divider lines. NEVER use '---'.
+- NEVER put emojis inside asterisks! Always put the emoji outside: write 1️⃣ *Title:*, NEVER *1️⃣ Title:*.
+- NEVER put asterisks around ordinary words in sentences. Do NOT write "the *Campos* app" or "tap *Download*". Only use bold for section titles or step labels like *Step 1:*.
+- NEVER put quotes directly touching asterisks or underscores. Write "Optimals Even Out", never *"Optimals..."*.
+- For Bold: Use *single asterisks* around headings, title labels, or step numbers only (e.g. *Step 1:*, *Price:*). NEVER use double asterisks **like this**.
+- For Lists & Steps: Always use clean bullet points (• ) or emoji numbers (1️⃣, 2️⃣, 3️⃣) with a clean space between items.
+- Spacing: Always leave a clean blank line between paragraphs and sections. Keep paragraphs short (2-3 sentences max) so replies are easy and comfortable to read on mobile.
+- Cleanliness: Never output unnecessary clutter, stray hyphens, or messy symbols. Keep every reply clean, elegant, and friendly.
+
+YOUR 6 CORE RESPONSIBILITIES:
+
+1. WELCOME & MENU:
+When a customer greets you or says hi, welcome them warmly:
+"Hello gorgeous! 👋 Welcome to Eby's Skincare & Beauty Hub! ✨
+I'm your online beauty and shopping assistant. How can I help you today?
+
+1️⃣ Shop / View Available Products
+2️⃣ Make a Pre-Order
+3️⃣ Check / Track My Order
+4️⃣ Skincare Consultation (Find suitable products)
+5️⃣ Delivery & Payment Information
+6️⃣ Talk to Eby"
+
+2. PRODUCT CATALOG & BROWSING:
+When customers want to see products, categorize them cleanly:
+• 🧴 *Skincare:* Oriflame NovAge anti-aging sets, Optimals Even Out (dark spots), Pure Skin (acne/oily skin), Sun 360 SPF 50 sunscreen.
+• 🧼 *Body Care:* Milk & Honey Gold body cream, Love Nature exfoliating scrubs, hand & foot creams.
+• 🌸 *Fragrance:* Giordani Gold Essenza, Possess EDP, Amber Elixir, Love Potion body mists.
+• 💄 *Makeup:* The ONE Everlasting Sync Foundation, Giordani Gold Iconic Lipsticks, 5-in-1 Wonder Lash Mascara.
+• 💇‍♀️ *Hair & Beauty:* Nourishing coconut & argan hair oils, hair repair masks.
+• 💍 *Jewellery & Accessories:* Elegant watches, necklaces, beauty bags.
+• 📦 *Pre-Orders:* Custom catalogue items and imported beauty sets.
+
+When detailing a specific product, always state:
+• Name & Size
+• Price in Naira (₦)
+• Key Benefits / Ingredients
+• Availability (In-Stock or Pre-order)
+
+3. PRE-ORDER & ORDER TAKING (CRITICAL):
+Guide the customer through the order flow:
+Step 1: Get the exact product name, quantity, and shade/variant.
+Step 2: Collect customer name, active WhatsApp phone number, and delivery address (including city/state).
+Step 3: Calculate product cost + estimated delivery fee, and show a clear Order Summary:
+
+📋 *Order Summary:*
+• *Customer:* [Name]
+• *Phone:* [Phone Number]
+• *Item(s):* [Product & Qty]
+• *Product Price:* ₦[Amount]
+• *Estimated Delivery Fee:* ₦[Amount]
+• *Total:* ₦[Total Amount]
+• *Delivery Location:* [Address, State]
+• *Order Type:* Pre-order
+
+"Please reply *YES* or *CONFIRM* if this information is correct, and I will place your order right away! ✨"
+
+Step 4: Once the customer confirms, output this exact directive on its own line:
+CREATE_ORDER: customer_name|customer_phone|items_summary|product_price|delivery_fee|total_amount|delivery_location|preorder
+
+Explain the next steps:
+• Pre-orders take 10–14 business days from supplier.
+• State that bank transfer payment details will be provided.
+• Request: "Once you make the transfer, please send your payment receipt/screenshot right here on WhatsApp so Eby can confirm it immediately! 🧾"
+
+4. ORDER TRACKING:
+When a customer asks about their order or provides their order code (e.g. EBY-1001) or phone number:
+Check the status and explain clearly. Status stages include:
+• Order received (Order logged, awaiting payment)
+• Payment confirmed (Payment verified by Eby)
+• Processing (Preparing order)
+• Ordered from supplier (Sent to manufacturer/brand)
+• In transit (On the way to Nigeria/distribution)
+• Arrived (Arrived safely, preparing dispatch)
+• Ready for delivery (Handed to courier)
+• Delivered (Safely delivered to customer)
+
+5. SKINCARE CONSULTATION (SMART ADVISOR):
+When a customer asks for skincare recommendations:
+Ask these 3 questions if not already shared:
+1. What is your skin type? (Oily, Dry, Combination, Normal, Sensitive)
+2. What is your main concern? (Acne/breakouts, Dark spots/hyperpigmentation, Dryness, Dullness, Aging/wrinkles)
+3. What products are you currently using?
+
+Recommend suitable items from Eby's catalog (e.g., Optimals Even Out Set for dark spots, Pure Skin for acne, Sun 360 SPF 50 for all skin types).
+STRICT RULE: Do NOT diagnose medical or dermatological diseases. For severe skin issues (like severe cystic acne, dermatitis, or burns), provide:
+"For clinical or severe skin concerns, let's have Eby (Princess) evaluate your skin personally! Tap 'Talk to Eby' or she will message you shortly."
+
+6. HUMAN HANDOVER ("TALK TO EBY"):
+When the customer chooses option 6, says "Talk to Eby", "Speak with Princess", has a dispute/complaint, asks for custom discounts, or asks something outside your capability:
+Politely hand over and include this directive:
+TALK_TO_EBY: customer_reason
+
+Reply:
+"👩‍💼 *Connecting you with Eby...*
+
+I have notified Princess (Eby) right away! She will step in and message you directly here shortly. Please feel free to leave any extra details or photos here in the meantime! 💕"
+"""
+
+    EBY_BEAUTY_WELCOME = """Hello gorgeous! 👋 Welcome to Eby's Skincare & Beauty Hub! ✨
+
+I'm your online shopping and beauty assistant. How can I help you today?
+
+1️⃣ Shop / View Available Products
+2️⃣ Make a Pre-Order
+3️⃣ Check / Track My Order
+4️⃣ Skincare Consultation (Find suitable products)
+5️⃣ Delivery & Payment Information
+6️⃣ Talk to Eby
+
+Feel free to choose a number or type what you're looking for! 💕"""
+
     tenants_to_seed = [
         {
             "id": "main",
@@ -311,6 +478,15 @@ How can we assist you with your application today? 😊"""
             "tenant_type": "business_bot",
             "prompt": PORTAL_PROMPT,
             "welcome": PORTAL_WELCOME
+        },
+        {
+            "id": "eby_beauty",
+            "name": "Eby Beauty & Skincare (Princess)",
+            "bot_phone": "2349068942140",
+            "owner_phone": "2349068942140",
+            "tenant_type": "business_bot",
+            "prompt": EBY_BEAUTY_PROMPT,
+            "welcome": EBY_BEAUTY_WELCOME
         }
     ]
 
@@ -328,6 +504,9 @@ How can we assist you with your application today? 😊"""
 
     conn.commit()
     conn.close()
+
+    # Seed products catalog for Eby Beauty
+    seed_eby_beauty_products()
 
 
 # ── TENANT MANAGEMENT CRUD ───────────────────────────────────────────────────
@@ -749,3 +928,206 @@ def get_due_reminders(current_time):
 
 def mark_reminder_sent(reminder_id):
     mark_tenant_reminder_sent(reminder_id)
+
+
+# ── TENANT ORDERS & PRODUCTS OPERATIONS ───────────────────────────────────────
+
+def create_tenant_order(tenant_id, customer_phone, customer_name, items_summary,
+                        product_total=0, delivery_fee=0, total_amount=0,
+                        delivery_location="", order_type="preorder", notes=""):
+    now = datetime.now().isoformat()
+    conn = _get_conn()
+    prefix = tenant_id[:3].upper()
+    count_row = conn.execute("SELECT COUNT(*) FROM tenant_orders WHERE tenant_id=?", (tenant_id,)).fetchone()
+    seq = (count_row[0] if count_row else 0) + 1001
+    order_code = f"{prefix}-{seq}"
+
+    while conn.execute("SELECT id FROM tenant_orders WHERE order_code=?", (order_code,)).fetchone():
+        seq += 1
+        order_code = f"{prefix}-{seq}"
+
+    if not total_amount:
+        total_amount = product_total + delivery_fee
+
+    conn.execute("""
+        INSERT INTO tenant_orders (
+            order_code, tenant_id, customer_phone, customer_name,
+            items_summary, product_total, delivery_fee, total_amount,
+            delivery_location, order_type, status, payment_proof_received, notes,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Order received', 0, ?, ?, ?)
+    """, (
+        order_code, tenant_id, customer_phone, customer_name,
+        items_summary, product_total, delivery_fee, total_amount,
+        delivery_location, order_type, notes, now, now
+    ))
+    conn.commit()
+    conn.close()
+    return get_tenant_order_by_code(tenant_id, order_code)
+
+
+def get_tenant_order_by_code(tenant_id, order_code):
+    conn = _get_conn()
+    if tenant_id:
+        row = conn.execute(
+            "SELECT * FROM tenant_orders WHERE order_code=? AND tenant_id=?",
+            (order_code, tenant_id)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM tenant_orders WHERE order_code=?",
+            (order_code,)
+        ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_tenant_orders(tenant_id=None, limit=100):
+    conn = _get_conn()
+    if tenant_id and tenant_id != "all":
+        rows = conn.execute(
+            "SELECT * FROM tenant_orders WHERE tenant_id=? ORDER BY id DESC LIMIT ?",
+            (tenant_id, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM tenant_orders ORDER BY id DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_tenant_customer_orders(tenant_id, customer_phone, limit=5):
+    conn = _get_conn()
+    clean_p = re.sub(r'[^0-9]', '', customer_phone)
+    rows = conn.execute(
+        """SELECT * FROM tenant_orders 
+           WHERE tenant_id=? AND (customer_phone=? OR customer_phone LIKE ?)
+           ORDER BY id DESC LIMIT ?""",
+        (tenant_id, customer_phone, f"%{clean_p[-10:]}%", limit)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_tenant_order_status(order_code, new_status, notes=None):
+    now = datetime.now().isoformat()
+    conn = _get_conn()
+    if notes is not None:
+        conn.execute(
+            "UPDATE tenant_orders SET status=?, notes=?, updated_at=? WHERE order_code=?",
+            (new_status, notes, now, order_code)
+        )
+    else:
+        conn.execute(
+            "UPDATE tenant_orders SET status=?, updated_at=? WHERE order_code=?",
+            (new_status, now, order_code)
+        )
+    conn.commit()
+    conn.close()
+    return get_tenant_order_by_code(None, order_code)
+
+
+def mark_tenant_order_payment_proof(order_code):
+    now = datetime.now().isoformat()
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE tenant_orders SET payment_proof_received=1, updated_at=? WHERE order_code=?",
+        (now, order_code)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_tenant_products(tenant_id, category=None, only_active=True):
+    conn = _get_conn()
+    query = "SELECT * FROM tenant_products WHERE tenant_id=?"
+    params = [tenant_id]
+    if category:
+        query += " AND category=?"
+        params.append(category)
+    if only_active:
+        query += " AND is_active=1"
+    query += " ORDER BY category ASC, id ASC"
+    rows = conn.execute(query, tuple(params)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_tenant_product(tenant_id, category, name, price, description="", variants="", stock_status="in_stock"):
+    now = datetime.now().isoformat()
+    conn = _get_conn()
+    conn.execute("""
+        INSERT INTO tenant_products (tenant_id, category, name, price, description, variants, stock_status, is_active, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+    """, (tenant_id, category, name, price, description, variants, stock_status, now))
+    conn.commit()
+    pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.close()
+    return pid
+
+
+def update_tenant_product(product_id, **kwargs):
+    if not kwargs:
+        return
+    conn = _get_conn()
+    clause = ", ".join(f"{k}=?" for k in kwargs)
+    conn.execute(f"UPDATE tenant_products SET {clause} WHERE id=?", (*kwargs.values(), product_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_tenant_product(product_id):
+    conn = _get_conn()
+    conn.execute("UPDATE tenant_products SET is_active=0 WHERE id=?", (product_id,))
+    conn.commit()
+    conn.close()
+
+
+def seed_eby_beauty_products():
+    conn = _get_conn()
+    existing = conn.execute("SELECT COUNT(*) FROM tenant_products WHERE tenant_id='eby_beauty'").fetchone()[0]
+    if existing > 0:
+        conn.close()
+        return
+
+    now = datetime.now().isoformat()
+    products = [
+        # Skincare
+        ("eby_beauty", "skincare", "Oriflame Optimals Even Out Set", 38000, "Complete 4-piece set (Cleanser, Serum, Day SPF 20 & Night Cream) targeting dark spots, hyperpigmentation and uneven skin tone.", "Full Set", "in_stock"),
+        ("eby_beauty", "skincare", "Oriflame NovAge Skinergise Set", 55000, "5-piece premium anti-fatigue & glow set with Taurine Energy & Acai Plant Stem Cell extract. Tightens pores & boosts youth.", "Full Set", "preorder"),
+        ("eby_beauty", "skincare", "Pure Skin 2-in-1 Face Wash & Scrub", 8500, "Deep pore exfoliating wash with Salicylic Acid and pomegranate extract. Clears breakouts & controls shine.", "150ml", "in_stock"),
+        ("eby_beauty", "skincare", "Sun 360 High Sunscreen SPF 50", 14500, "Broad spectrum UVA/UVB high protection daily sun lotion. Lightweight, non-greasy, zero white cast.", "50ml", "in_stock"),
+        ("eby_beauty", "skincare", "Optimals Hydra Radiance Moisture Serum", 13000, "Deep 24hr moisture serum with hyaluronic acid and Swedish herbal antioxidants for dry & dull skin.", "30ml", "in_stock"),
+
+        # Body Care
+        ("eby_beauty", "body_care", "Milk & Honey Gold Nourishing Body Cream", 11000, "Iconic rich moisturizing cream with organically sourced milk & honey extracts. Deeply conditions dry skin.", "250ml", "in_stock"),
+        ("eby_beauty", "body_care", "Love Nature Refreshing Exfoliating Shower Gel", 7500, "Energizing organic strawberry & lime shower gel with natural exfoliating seeds.", "250ml", "in_stock"),
+
+        # Fragrance
+        ("eby_beauty", "fragrance", "Giordani Gold Essenza Parfum", 35000, "Exquisite luxury floral orange blossom & Tuscan wood fragrance. Long-lasting projection.", "50ml", "in_stock"),
+        ("eby_beauty", "fragrance", "Possess Eau de Parfum", 28000, "Intoxicating Queen Cleopatra-inspired scent with ylang-ylang, Indonesian patchouli and vanilla.", "50ml", "in_stock"),
+        ("eby_beauty", "fragrance", "Love Potion Sensual Body Mist", 12500, "Alluring chocolate and ginger oriental scent. Perfect for everyday wear.", "75ml", "in_stock"),
+
+        # Makeup
+        ("eby_beauty", "makeup", "The ONE Everlasting Sync Foundation SPF 30", 12500, "Smart skin-adapting all-day matte foundation. Sweat-resistant with SPF 30. Available in all Nigerian shades.", "30ml", "in_stock"),
+        ("eby_beauty", "makeup", "Giordani Gold Iconic Lipstick SPF 15", 9500, "Satin finish creamy lipstick infused with rejuvenating Argan oil. Rich longwear pigment.", "Standard", "in_stock"),
+        ("eby_beauty", "makeup", "The ONE 5-in-1 Wonder Lash Waterproof Mascara", 8000, "Multifunctional mascara: length, volume, curl, separation, and all-day conditioning.", "8ml", "in_stock"),
+
+        # Hair & Beauty
+        ("eby_beauty", "hair_beauty", "Love Nature Hot Oil Treatment for Dry Hair", 4500, "Intense conditioning wheat & coconut oil warm treatment tube. Restores dry and damaged hair.", "15ml", "in_stock"),
+        ("eby_beauty", "hair_beauty", "Eleo Protecting Hair Oil", 15000, "Luxurious leave-in hair oil with golden argan, rose and burdock oils for silky shine.", "50ml", "in_stock"),
+
+        # Jewellery / Accessories
+        ("eby_beauty", "jewellery", "Exquisite Gold-Tone Watch & Bracelet Gift Set", 22000, "Timeless stainless steel gold-tone ladies watch with matching crystal accent bracelet.", "Set", "in_stock")
+    ]
+
+    for p in products:
+        conn.execute("""
+            INSERT INTO tenant_products (tenant_id, category, name, price, description, variants, stock_status, is_active, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+        """, (*p, now))
+
+    conn.commit()
+    conn.close()

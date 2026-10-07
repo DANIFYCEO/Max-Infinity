@@ -471,6 +471,48 @@ footer{
     </div>
   </div>
 
+  <!-- ORDERS & PRE-ORDERS TRACKER (PRINCESS BEAUTY HUB & MULTI-TENANT) -->
+  <div class="panel" style="margin-bottom:24px;">
+    <div class="panel-head" style="flex-wrap:wrap;gap:12px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="panel-title" style="font-size:13px;display:flex;align-items:center;gap:6px;">
+          <span>🛍️ Orders &amp; Pre-Orders Tracker</span>
+        </div>
+        <span class="panel-meta" id="orders-count-meta">0 orders</span>
+      </div>
+
+      <!-- Filters & Actions -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <select class="select-filter" id="orders-tenant-filter" onchange="renderOrders()">
+          <option value="all">All Clients / Stores</option>
+          <option value="eby_beauty" selected>Princess Beauty Hub (Eby)</option>
+          <option value="campos">Campos App</option>
+          <option value="portal_consult">Portal Consult</option>
+        </select>
+
+        <select class="select-filter" id="orders-status-filter" onchange="renderOrders()">
+          <option value="all">All Statuses</option>
+          <option value="Order received">Order received</option>
+          <option value="Payment confirmed">Payment confirmed</option>
+          <option value="Processing">Processing</option>
+          <option value="Ordered from supplier">Ordered from supplier</option>
+          <option value="In transit">In transit</option>
+          <option value="Arrived">Arrived</option>
+          <option value="Ready for delivery">Ready for delivery</option>
+          <option value="Delivered">Delivered</option>
+        </select>
+
+        <input type="text" id="orders-search-input" placeholder="🔍 Search code, customer, item..." oninput="renderOrders()" style="width:190px;padding:6px 10px;font-size:11px;">
+
+        <button class="btn-primary" onclick="openCatalogModal('eby_beauty')">🏷️ View &amp; Manage Catalog</button>
+      </div>
+    </div>
+
+    <div id="orders-table-container" style="max-height:460px;overflow-y:auto;">
+      <div style="color:var(--g400);padding:24px;text-align:center;">Loading orders...</div>
+    </div>
+  </div>
+
   <!-- REGISTERED USERS & VIP DIRECTORY -->
   <div class="panel" style="margin-bottom:24px;">
     <div class="panel-head" style="flex-wrap:wrap;gap:12px;">
@@ -495,6 +537,7 @@ footer{
           <option value="main">MAX Central Line</option>
           <option value="campos">Campos App</option>
           <option value="portal_consult">Portal Consult</option>
+          <option value="eby_beauty">Princess Beauty Hub</option>
         </select>
 
         <input type="text" id="user-search-input" placeholder="🔍 Search phone or name..." oninput="renderUsers()" style="width:190px;padding:6px 10px;font-size:11px;">
@@ -604,6 +647,73 @@ footer{
       <textarea id="add-prompt" rows="4" style="margin-top:4px;font-size:11px;"></textarea>
     </div>
     <button class="btn-primary" style="width:100%" onclick="createTenantSubmit()">Create & Provision Client</button>
+  </div>
+</div>
+
+<!-- PRODUCT CATALOG MODAL -->
+<div class="modal-overlay" id="catalog-modal">
+  <div class="modal-box" style="max-width:780px;max-height:90vh;overflow-y:auto;">
+    <div class="modal-head">
+      <div class="modal-title" id="catalog-modal-title">🏷️ Product Catalog &amp; Stock Manager</div>
+      <button class="modal-close" onclick="closeModal('catalog-modal')">&times;</button>
+    </div>
+    
+    <!-- Add Product Form -->
+    <div style="background:var(--g700);padding:14px;border-radius:6px;border:1px solid var(--g600);">
+      <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--white);">+ Add New Product to Catalog</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+        <div>
+          <label style="font-size:10px;color:var(--g300)">Category</label>
+          <select id="prod-cat" style="width:100%;padding:6px;background:var(--g900);color:var(--white);border:1px solid var(--g600);border-radius:4px;font-size:11px;">
+            <option value="skincare">Skincare</option>
+            <option value="body_care">Body Care</option>
+            <option value="fragrance">Fragrance</option>
+            <option value="makeup">Makeup</option>
+            <option value="hair_beauty">Hair / Beauty</option>
+            <option value="jewellery">Jewellery &amp; Accessories</option>
+            <option value="pre_order">Pre-Orders / Other</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--g300)">Product Name</label>
+          <input type="text" id="prod-name" placeholder="e.g. Oriflame NovAge Bright Sublime" style="padding:6px;font-size:11px;">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px;">
+        <div>
+          <label style="font-size:10px;color:var(--g300)">Price (₦)</label>
+          <input type="number" id="prod-price" placeholder="e.g. 35000" style="padding:6px;font-size:11px;background:var(--g900);border:1px solid var(--g600);color:var(--white);border-radius:4px;width:100%;">
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--g300)">Variants (Sizes/Shades)</label>
+          <input type="text" id="prod-variants" placeholder="e.g. 50ml, Fair/Warm" style="padding:6px;font-size:11px;">
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--g300)">Stock Status</label>
+          <select id="prod-stock" style="width:100%;padding:6px;background:var(--g900);color:var(--white);border:1px solid var(--g600);border-radius:4px;font-size:11px;">
+            <option value="in_stock">In Stock (Available)</option>
+            <option value="pre_order">Pre-order Only</option>
+            <option value="out_of_stock">Out of Stock</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:10px;color:var(--g300)">Description / Benefits</label>
+        <input type="text" id="prod-desc" placeholder="e.g. Targets dark spots, brightens and firms complexion." style="padding:6px;font-size:11px;">
+      </div>
+      <button class="btn-primary" onclick="addProductSubmit()" style="font-size:11px;padding:6px 14px;">Add Product to Bot Catalog</button>
+    </div>
+
+    <!-- Product List -->
+    <div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--white);display:flex;justify-content:space-between;align-items:center;">
+        <span>Active Products in AI Catalog</span>
+        <span id="prod-count-label" style="font-size:11px;color:var(--g300)">0 items</span>
+      </div>
+      <div id="catalog-table-container">
+        <div style="color:var(--g400);padding:20px;text-align:center;">Loading products...</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -919,7 +1029,8 @@ async function loadLeads() {
     const tenantBadges = {
       'main': 'MAX Central',
       'campos': 'Campos App',
-      'portal_consult': 'Portal Consult'
+      'portal_consult': 'Portal Consult',
+      'eby_beauty': 'Princess Beauty Hub'
     }
     document.getElementById('leads-body').innerHTML = `
       <table class="tbl">
@@ -1008,7 +1119,8 @@ function renderUsers() {
   const tenantNames = {
     'main': 'MAX Central',
     'campos': 'Campos App',
-    'portal_consult': 'Portal Consult'
+    'portal_consult': 'Portal Consult',
+    'eby_beauty': 'Princess Beauty Hub'
   }
 
   container.innerHTML = `
@@ -1192,17 +1304,291 @@ function fmt(n) { return (n||0).toLocaleString() }
 function clean(s) { return (s||'').replace('@s.whatsapp.net','').replace('@lid','').replace('@c.us','') }
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;') }
 
+// ── ORDERS & PRE-ORDERS TRACKER ───────────────────────────────────────────────
+let allOrders = []
+let allProducts = []
+let activeCatalogTenant = 'eby_beauty'
+
+async function loadOrders() {
+  try {
+    const data = await (await fetch(api('/admin/orders'))).json()
+    allOrders = Array.isArray(data) ? data : []
+    document.getElementById('orders-count-meta').textContent = `${allOrders.length} orders`
+    renderOrders()
+  } catch(e) {
+    document.getElementById('orders-table-container').innerHTML = 
+      `<div style="color:var(--red);padding:20px;text-align:center;">Failed to load orders: ${e.message}</div>`
+  }
+}
+
+function renderOrders() {
+  const container = document.getElementById('orders-table-container')
+  const tenantFilter = document.getElementById('orders-tenant-filter').value
+  const statusFilter = document.getElementById('orders-status-filter').value
+  const query = (document.getElementById('orders-search-input').value || '').trim().toLowerCase()
+
+  let filtered = allOrders.filter(o => {
+    if (tenantFilter !== 'all' && o.tenant_id !== tenantFilter) return false
+    if (statusFilter !== 'all' && o.status !== statusFilter) return false
+    if (query) {
+      const matchCode = (o.order_code || '').toLowerCase().includes(query)
+      const matchName = (o.customer_name || '').toLowerCase().includes(query)
+      const matchPhone = (o.customer_phone || '').toLowerCase().includes(query)
+      const matchItems = (o.items_summary || '').toLowerCase().includes(query)
+      const matchLoc = (o.delivery_location || '').toLowerCase().includes(query)
+      if (!matchCode && !matchName && !matchPhone && !matchItems && !matchLoc) return false
+    }
+    return true
+  })
+
+  if (!filtered.length) {
+    container.innerHTML = '<div style="color:var(--g400);padding:30px;text-align:center;">No matching orders found.</div>'
+    return
+  }
+
+  const statuses = [
+    'Order received',
+    'Payment confirmed',
+    'Processing',
+    'Ordered from supplier',
+    'In transit',
+    'Arrived',
+    'Ready for delivery',
+    'Delivered'
+  ]
+
+  container.innerHTML = `
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Order Code</th>
+          <th>Customer</th>
+          <th>Items Ordered</th>
+          <th>Total &amp; Breakdown</th>
+          <th>Delivery Location</th>
+          <th>Payment Proof</th>
+          <th>Fulfillment Status</th>
+          <th>Placed</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${filtered.map(o => {
+          const phoneClean = clean(o.customer_phone)
+          const phoneFormatted = formatPhone(o.customer_phone)
+          const proofBadge = o.payment_proof_received 
+            ? '<span class="badge" style="background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3)">🟢 Receipt Sent</span>'
+            : '<span class="badge" style="background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid rgba(245,158,11,.3)">🟡 Awaiting Proof</span>'
+          
+          const dt = (o.created_at || '').slice(0, 16).replace('T', ' ')
+
+          const opts = statuses.map(s => 
+            `<option value="${s}" ${o.status === s ? 'selected' : ''}>${s}</option>`
+          ).join('')
+
+          return `
+            <tr>
+              <td>
+                <span class="badge badge-vip" style="font-family:monospace;font-size:11px;font-weight:700;">${esc(o.order_code)}</span>
+                <div style="font-size:10px;color:var(--g400);margin-top:2px;">${esc(o.order_type || 'order')}</div>
+              </td>
+              <td>
+                <div style="font-weight:600;color:var(--white);">${esc(o.customer_name || 'Customer')}</div>
+                <a href="https://wa.me/${phoneClean}" target="_blank" style="color:var(--g300);text-decoration:none;font-size:11px;font-family:monospace;">
+                  ${phoneFormatted} ↗
+                </a>
+              </td>
+              <td style="max-width:220px;word-break:break-word;">
+                <span style="color:var(--white);font-weight:500;">${esc(o.items_summary)}</span>
+                ${o.notes ? `<div style="font-size:10px;color:var(--g400);margin-top:2px;">Note: ${esc(o.notes)}</div>` : ''}
+              </td>
+              <td>
+                <span class="num" style="color:var(--green);font-size:13px;">₦${fmt(o.total_amount)}</span><br>
+                <span class="dim" style="font-size:10px;">Item: ₦${fmt(o.product_total)} | Del: ₦${fmt(o.delivery_fee)}</span>
+              </td>
+              <td>
+                <span style="color:var(--white);">${esc(o.delivery_location || 'Not provided')}</span>
+              </td>
+              <td>${proofBadge}</td>
+              <td>
+                <select onchange="updateOrderStatus('${o.order_code}', this.value)" style="background:var(--g900);color:var(--white);border:1px solid var(--g600);border-radius:4px;padding:5px 8px;font-size:11px;outline:none;cursor:pointer;">
+                  ${opts}
+                </select>
+              </td>
+              <td class="dim" style="font-size:11px;">${dt}</td>
+            </tr>
+          `
+        }).join('')}
+      </tbody>
+    </table>
+  `
+}
+
+async function updateOrderStatus(orderCode, newStatus) {
+  try {
+    const res = await (await fetch(api(`/admin/orders/${orderCode}/status`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus })
+    })).json()
+
+    if (res.status === 'ok') {
+      const target = allOrders.find(o => o.order_code === orderCode)
+      if (target) target.status = newStatus
+      renderOrders()
+    } else {
+      alert("Error updating order: " + (res.error || 'Failed'))
+    }
+  } catch(e) {
+    alert("Network error updating order: " + e.message)
+    loadOrders()
+  }
+}
+
+// ── CATALOG & PRODUCT MANAGER ────────────────────────────────────────────────
+async function openCatalogModal(tenantId) {
+  activeCatalogTenant = tenantId || 'eby_beauty'
+  const titleMap = {
+    'eby_beauty': 'Princess Beauty Hub (Eby)',
+    'campos': 'Campos App',
+    'portal_consult': 'Portal Consult'
+  }
+  document.getElementById('catalog-modal-title').textContent = `🏷️ Product Catalog & Stock Manager — ${titleMap[activeCatalogTenant] || activeCatalogTenant}`
+  openModal('catalog-modal')
+  loadProducts(activeCatalogTenant)
+}
+
+async function loadProducts(tenantId) {
+  const container = document.getElementById('catalog-table-container')
+  try {
+    const data = await (await fetch(api(`/admin/products?tenant_id=${tenantId}`))).json()
+    allProducts = Array.isArray(data) ? data : []
+    document.getElementById('prod-count-label').textContent = `${allProducts.length} items`
+
+    if (!allProducts.length) {
+      container.innerHTML = '<div style="color:var(--g400);padding:24px;text-align:center;">No products in catalog yet. Add one above!</div>'
+      return
+    }
+
+    container.innerHTML = `
+      <table class="tbl" style="font-size:11px;">
+        <thead>
+          <tr>
+            <th>Product Name</th>
+            <th>Category</th>
+            <th>Price</th>
+            <th>Variants / Specs</th>
+            <th>Stock Status</th>
+            <th style="text-align:right;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${allProducts.map(p => `
+            <tr>
+              <td>
+                <div style="font-weight:600;color:var(--white);">${esc(p.name)}</div>
+                <div style="font-size:10px;color:var(--g400);">${esc(p.description || '').slice(0, 50)}${p.description && p.description.length > 50 ? '...' : ''}</div>
+              </td>
+              <td><span class="badge badge-tenant">${esc(p.category)}</span></td>
+              <td><span class="num" style="color:var(--green)">₦${fmt(p.price)}</span></td>
+              <td class="dim">${esc(p.variants || '—')}</td>
+              <td>
+                <select onchange="updateProductStock(${p.id}, this.value)" style="background:var(--g900);color:var(--white);border:1px solid var(--g600);border-radius:4px;padding:3px 6px;font-size:10px;">
+                  <option value="in_stock" ${p.stock_status === 'in_stock' ? 'selected' : ''}>🟢 In Stock</option>
+                  <option value="pre_order" ${p.stock_status === 'pre_order' ? 'selected' : ''}>🟡 Pre-order Only</option>
+                  <option value="out_of_stock" ${p.stock_status === 'out_of_stock' ? 'selected' : ''}>🔴 Out of Stock</option>
+                </select>
+              </td>
+              <td style="text-align:right;">
+                <button class="btn-action" style="color:var(--red);" onclick="deleteProduct(${p.id})">Delete</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `
+  } catch(e) {
+    container.innerHTML = `<div style="color:var(--red);padding:20px;text-align:center;">Failed to load products: ${e.message}</div>`
+  }
+}
+
+async function addProductSubmit() {
+  const cat = document.getElementById('prod-cat').value
+  const name = document.getElementById('prod-name').value.trim()
+  const price = parseInt(document.getElementById('prod-price').value || 0)
+  const variants = document.getElementById('prod-variants').value.trim()
+  const stock = document.getElementById('prod-stock').value
+  const desc = document.getElementById('prod-desc').value.trim()
+
+  if (!name || !price) {
+    alert("Please provide product name and price.")
+    return
+  }
+
+  try {
+    const res = await (await fetch(api('/admin/products'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenant_id: activeCatalogTenant,
+        category: cat,
+        name: name,
+        price: price,
+        description: desc,
+        variants: variants,
+        stock_status: stock
+      })
+    })).json()
+
+    if (res.status === 'ok') {
+      document.getElementById('prod-name').value = ''
+      document.getElementById('prod-price').value = ''
+      document.getElementById('prod-variants').value = ''
+      document.getElementById('prod-desc').value = ''
+      loadProducts(activeCatalogTenant)
+    } else {
+      alert("Error adding product: " + (res.error || 'Failed'))
+    }
+  } catch(e) {
+    alert("Error adding product: " + e.message)
+  }
+}
+
+async function updateProductStock(pid, newStock) {
+  try {
+    await fetch(api(`/admin/products/${pid}`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stock_status: newStock })
+    })
+  } catch(e) {
+    alert("Error updating stock: " + e.message)
+    loadProducts(activeCatalogTenant)
+  }
+}
+
+async function deleteProduct(pid) {
+  if (!confirm("Are you sure you want to remove this product from the bot's catalog?")) return
+  try {
+    await fetch(api(`/admin/products/${pid}`), { method: 'DELETE' })
+    loadProducts(activeCatalogTenant)
+  } catch(e) {
+    alert("Error deleting product: " + e.message)
+  }
+}
+
 function loadAll() {
   loadFleet()
   loadStats()
   loadChart()
   loadLeads()
+  loadOrders()
   loadUsers()
   loadReminders()
 }
 
 loadAll()
 setInterval(loadFleet, 15000)
+setInterval(loadOrders, 15000)
 setInterval(loadStats, 30000)
 setInterval(loadUsers, 20000)
 setInterval(loadReminders, 20000)
