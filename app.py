@@ -36,7 +36,8 @@ from database import (
     save_tenant_document, load_tenant_document,
     add_tenant_reminder, get_due_tenant_reminders, mark_tenant_reminder_sent,
     save_tenant_lead, get_tenant_leads, get_fleet_stats,
-    is_vip_copilot_user, set_user_vip_status
+    is_vip_copilot_user, set_user_vip_status,
+    get_detailed_users, get_all_reminders, get_all_leads
 )
 
 load_dotenv()
@@ -1159,13 +1160,24 @@ def admin_stats():
 def admin_leads():
     if not admin_auth():
         return jsonify({"error": "unauthorized"}), 401
-    return jsonify(get_recent_leads())
+    tenant_id = request.args.get("tenant_id")
+    limit = int(request.args.get("limit", 50))
+    return jsonify(get_all_leads(tenant_id=tenant_id, limit=limit))
 
 @app.route("/admin/users")
 def admin_users():
     if not admin_auth():
         return jsonify({"error": "unauthorized"}), 401
-    return jsonify(get_recent_users())
+    tenant_id = request.args.get("tenant_id")
+    limit = int(request.args.get("limit", 200))
+    return jsonify(get_detailed_users(tenant_id=tenant_id, limit=limit))
+
+@app.route("/admin/reminders")
+def admin_reminders():
+    if not admin_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    limit = int(request.args.get("limit", 50))
+    return jsonify(get_all_reminders(limit=limit))
 
 @app.route("/admin/chart")
 def admin_chart():
@@ -1334,14 +1346,15 @@ def admin_set_vip():
         return jsonify({"error": "sender required"}), 400
 
     clean_sender = sender
+    tenant_id = data.get("tenant_id", "main")
     if not clean_sender.endswith("@s.whatsapp.net"):
         clean_num = re.sub(r'[^0-9]', '', clean_sender)
         if clean_num.startswith('0') and len(clean_num) == 11:
             clean_num = '234' + clean_num[1:]
         clean_sender = f"{clean_num}@s.whatsapp.net"
 
-    set_user_vip_status("main", clean_sender, is_vip)
-    return jsonify({"status": "ok", "sender": clean_sender, "is_vip": is_vip})
+    set_user_vip_status(tenant_id, clean_sender, is_vip)
+    return jsonify({"status": "ok", "sender": clean_sender, "tenant_id": tenant_id, "is_vip": is_vip})
 
 
 # ── ONE-CLICK SERVER UPDATE (For Azure VM / VPS) ──────────────────────────────

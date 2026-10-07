@@ -282,6 +282,47 @@ textarea:focus, input[type="text"]:focus{border-color:var(--g300)}
   cursor:pointer;
 }
 
+/* BADGES */
+.badge{
+  font-size:10px;
+  font-weight:600;
+  padding:3px 8px;
+  border-radius:12px;
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  white-space:nowrap;
+}
+.badge-vip{background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid rgba(245,158,11,.35)}
+.badge-paid{background:rgba(59,130,246,.15);color:var(--blue);border:1px solid rgba(59,130,246,.3)}
+.badge-free{background:rgba(107,114,128,.15);color:var(--g300);border:1px solid rgba(107,114,128,.3)}
+.badge-tenant{background:rgba(139,92,246,.15);color:#a78bfa;border:1px solid rgba(139,92,246,.3)}
+
+/* FILTER TABS */
+.filter-tabs{display:flex;gap:6px;align-items:center}
+.ftab{
+  background:var(--g700);
+  border:1px solid var(--g600);
+  color:var(--g300);
+  padding:5px 10px;
+  border-radius:4px;
+  font-size:11px;
+  cursor:pointer;
+  transition:all .15s;
+}
+.ftab:hover{color:var(--white);background:var(--g600)}
+.ftab.active{background:var(--white);color:var(--black);font-weight:600;border-color:var(--white)}
+
+select.select-filter{
+  background:var(--g900);
+  border:1px solid var(--g600);
+  color:var(--white);
+  padding:6px 10px;
+  border-radius:4px;
+  font-size:11px;
+  outline:none;
+}
+
 /* MODAL */
 .modal-overlay{
   display:none;
@@ -427,6 +468,52 @@ footer{
       <div id="leads-body" style="max-height:220px;overflow-y:auto">
         <div style="color:var(--g400);padding:20px">Loading leads...</div>
       </div>
+    </div>
+  </div>
+
+  <!-- REGISTERED USERS & VIP DIRECTORY -->
+  <div class="panel" style="margin-bottom:24px;">
+    <div class="panel-head" style="flex-wrap:wrap;gap:12px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="panel-title" style="font-size:13px;display:flex;align-items:center;gap:6px;">
+          <span>👥 Registered Users &amp; VIP Directory</span>
+        </div>
+        <span class="panel-meta" id="users-count-meta">0 users</span>
+      </div>
+
+      <!-- Filters & Search -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <div class="filter-tabs" id="user-tier-tabs">
+          <button class="ftab active" id="tab-all" onclick="setUserTierFilter('all')">All (<span id="cnt-all">0</span>)</button>
+          <button class="ftab" id="tab-vip" onclick="setUserTierFilter('vip')">👑 VIP (<span id="cnt-vip">0</span>)</button>
+          <button class="ftab" id="tab-paid" onclick="setUserTierFilter('paid')">💎 Paid (<span id="cnt-paid">0</span>)</button>
+          <button class="ftab" id="tab-standard" onclick="setUserTierFilter('standard')">Standard (<span id="cnt-std">0</span>)</button>
+        </div>
+
+        <select class="select-filter" id="user-tenant-filter" onchange="renderUsers()">
+          <option value="all">All Clients / Lines</option>
+          <option value="main">MAX Central Line</option>
+          <option value="campos">Campos App</option>
+          <option value="portal_consult">Portal Consult</option>
+        </select>
+
+        <input type="text" id="user-search-input" placeholder="🔍 Search phone or name..." oninput="renderUsers()" style="width:190px;padding:6px 10px;font-size:11px;">
+      </div>
+    </div>
+
+    <div id="users-table-container" style="max-height:460px;overflow-y:auto;">
+      <div style="color:var(--g400);padding:24px;text-align:center;">Loading users...</div>
+    </div>
+  </div>
+
+  <!-- SCHEDULED REMINDERS & ALARMS -->
+  <div class="panel" style="margin-bottom:30px;">
+    <div class="panel-head">
+      <div class="panel-title">⏰ Scheduled Reminders &amp; Alarms (VIP / Co-Pilot Pings)</div>
+      <div class="panel-meta" id="reminders-count-meta">0 alarms</div>
+    </div>
+    <div id="reminders-table-container" style="max-height:240px;overflow-y:auto;">
+      <div style="color:var(--g400);padding:20px;text-align:center;">Loading reminders...</div>
     </div>
   </div>
 
@@ -753,6 +840,8 @@ async function activateVIP() {
     if (!raw.ok) throw new Error(res.error || raw.statusText)
     statusEl.textContent = `👑 VIP Status Active for ${res.sender} (Executive Co-Pilot enabled)`
     statusEl.style.color = "var(--green)"
+    loadUsers()
+    loadStats()
   } catch(e) {
     statusEl.textContent = "Error setting VIP: " + e.message
     statusEl.style.color = "var(--red)"
@@ -827,13 +916,19 @@ async function loadLeads() {
       document.getElementById('leads-body').innerHTML = '<div style="color:var(--g400);padding:20px;">No leads yet</div>'
       return
     }
+    const tenantBadges = {
+      'main': 'MAX Central',
+      'campos': 'Campos App',
+      'portal_consult': 'Portal Consult'
+    }
     document.getElementById('leads-body').innerHTML = `
       <table class="tbl">
-        <thead><tr><th>Name / Number</th><th>Message</th><th>Time</th></tr></thead>
+        <thead><tr><th>Client / Line</th><th>Name / Number</th><th>Message</th><th>Time</th></tr></thead>
         <tbody>${data.map(l => `<tr>
+          <td><span class="badge badge-tenant">${esc(tenantBadges[l.tenant_id] || l.tenant_id || 'MAX')}</span></td>
           <td class="num">
             ${l.name ? `<span style="color:#fff">${esc(l.name)}</span><br>` : ''}
-            <a href="https://wa.me/${clean(l.sender)}" target="_blank" style="color:#555;text-decoration:none;font-size:11px">${clean(l.sender)}</a>
+            <a href="https://wa.me/${clean(l.sender)}" target="_blank" style="color:var(--g300);text-decoration:none;font-size:11px">${formatPhone(l.sender)}</a>
           </td>
           <td>${esc(l.message).slice(0,35)}${l.message.length>35?'&hellip;':''}</td>
           <td class="dim">${(l.timestamp||'').slice(0,16)}</td>
@@ -842,6 +937,216 @@ async function loadLeads() {
   } catch(e) {
     document.getElementById('leads-body').innerHTML = '<div style="color:var(--g400);padding:20px;">Failed to load leads</div>'
   }
+}
+
+// ── USERS & VIP DIRECTORY ─────────────────────────────────────────────────────
+let allUsers = []
+let activeTierFilter = 'all'
+
+async function loadUsers() {
+  try {
+    const data = await (await fetch(api('/admin/users'))).json()
+    allUsers = Array.isArray(data) ? data : []
+    
+    // Update count tabs
+    const total = allUsers.length
+    const vips = allUsers.filter(u => u.is_vip).length
+    const paid = allUsers.filter(u => u.is_paid && !u.is_vip).length
+    const std = allUsers.filter(u => !u.is_vip && !u.is_paid).length
+
+    document.getElementById('cnt-all').textContent = total
+    document.getElementById('cnt-vip').textContent = vips
+    document.getElementById('cnt-paid').textContent = paid
+    document.getElementById('cnt-std').textContent = std
+    document.getElementById('users-count-meta').textContent = `${total} registered`
+
+    renderUsers()
+  } catch(e) {
+    document.getElementById('users-table-container').innerHTML = 
+      `<div style="color:var(--red);padding:20px;text-align:center;">Failed to load users: ${e.message}</div>`
+  }
+}
+
+function setUserTierFilter(tier) {
+  activeTierFilter = tier
+  document.querySelectorAll('#user-tier-tabs .ftab').forEach(b => {
+    b.classList.remove('active')
+  })
+  const targetBtn = document.getElementById(`tab-${tier}`)
+  if (targetBtn) targetBtn.classList.add('active')
+  renderUsers()
+}
+
+function renderUsers() {
+  const container = document.getElementById('users-table-container')
+  const tenantFilter = document.getElementById('user-tenant-filter').value
+  const query = (document.getElementById('user-search-input').value || '').trim().toLowerCase()
+
+  let filtered = allUsers.filter(u => {
+    // Tier filter
+    if (activeTierFilter === 'vip' && !u.is_vip) return false
+    if (activeTierFilter === 'paid' && (!u.is_paid || u.is_vip)) return false
+    if (activeTierFilter === 'standard' && (u.is_vip || u.is_paid)) return false
+
+    // Tenant filter
+    if (tenantFilter !== 'all' && u.tenant_id !== tenantFilter) return false
+
+    // Query filter
+    if (query) {
+      const matchSender = (u.sender || '').toLowerCase().includes(query)
+      const matchName = (u.name || '').toLowerCase().includes(query)
+      if (!matchSender && !matchName) return false
+    }
+    return true
+  })
+
+  if (!filtered.length) {
+    container.innerHTML = '<div style="color:var(--g400);padding:30px;text-align:center;">No matching users found.</div>'
+    return
+  }
+
+  const tenantNames = {
+    'main': 'MAX Central',
+    'campos': 'Campos App',
+    'portal_consult': 'Portal Consult'
+  }
+
+  container.innerHTML = `
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>User / WhatsApp</th>
+          <th>Service / Line</th>
+          <th>Access Tier</th>
+          <th>Messages</th>
+          <th>Activity</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${filtered.map(u => {
+          const tName = tenantNames[u.tenant_id] || u.tenant_id || 'MAX Central'
+          const phoneClean = clean(u.sender)
+          const phoneFormatted = formatPhone(u.sender)
+          
+          let tierBadge = '<span class="badge badge-free">🟢 Standard</span>'
+          if (u.is_vip) {
+            tierBadge = '<span class="badge badge-vip">👑 VIP Executive</span>'
+          } else if (u.is_paid) {
+            tierBadge = '<span class="badge badge-paid">💎 Paid Unlimited</span>'
+          }
+
+          const isVIP = !!u.is_vip
+
+          return `
+            <tr>
+              <td>
+                <div style="font-weight:600;color:var(--white);">${u.name ? esc(u.name) : 'WhatsApp User'}</div>
+                <a href="https://wa.me/${phoneClean}" target="_blank" style="color:var(--g300);text-decoration:none;font-size:11px;font-family:monospace;">
+                  ${phoneFormatted} ↗
+                </a>
+              </td>
+              <td>
+                <span class="badge badge-tenant">${esc(tName)}</span>
+              </td>
+              <td>${tierBadge}</td>
+              <td>
+                <span class="num">${fmt(u.daily_count)}</span> <span class="dim">today</span><br>
+                <span class="dim">${fmt(u.message_count)} total</span>
+              </td>
+              <td>
+                <span class="dim" style="font-size:11px;">Joined: ${u.first_seen || 'N/A'}</span><br>
+                <span style="font-size:11px;color:var(--g300);">Last: ${u.last_msg_date || 'Today'}</span>
+              </td>
+              <td style="text-align:right;">
+                <div style="display:inline-flex;gap:6px;">
+                  <button class="btn-action ${isVIP ? '' : 'btn-pair'}" onclick="toggleUserVIP('${u.tenant_id}', '${u.sender}', ${isVIP ? 0 : 1})" title="${isVIP ? 'Revoke VIP status' : 'Promote to VIP Executive'}">
+                    ${isVIP ? 'Revoke VIP' : '👑 Make VIP'}
+                  </button>
+                  <a href="https://wa.me/${phoneClean}" target="_blank" class="btn-action" style="text-decoration:none;">Chat</a>
+                </div>
+              </td>
+            </tr>
+          `
+        }).join('')}
+      </tbody>
+    </table>
+  `
+}
+
+async function toggleUserVIP(tenantId, sender, makeVip) {
+  const actionText = makeVip ? "promote to VIP Executive Co-Pilot" : "remove from VIP"
+  if (!confirm(`Are you sure you want to ${actionText} (${clean(sender)})?`)) return
+  try {
+    await fetch(api('/admin/vip'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ sender: sender, tenant_id: tenantId, is_vip: makeVip })
+    })
+    loadUsers()
+    loadStats()
+  } catch(e) {
+    alert("Error updating VIP status: " + e.message)
+  }
+}
+
+// ── REMINDERS & ALARMS ────────────────────────────────────────────────────────
+async function loadReminders() {
+  try {
+    const data = await (await fetch(api('/admin/reminders'))).json()
+    const container = document.getElementById('reminders-table-container')
+    const list = Array.isArray(data) ? data : []
+    document.getElementById('reminders-count-meta').textContent = `${list.length} alarms`
+
+    if (!list.length) {
+      container.innerHTML = '<div style="color:var(--g400);padding:20px;text-align:center;">No scheduled reminders or alarms set yet.</div>'
+      return
+    }
+
+    container.innerHTML = `
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Recipient</th>
+            <th>Line</th>
+            <th>Task / Reminder</th>
+            <th>Remind At</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(r => {
+            const dueStr = new Date(r.remind_time * 1000).toLocaleString('en-NG', { timeZone: 'Africa/Lagos' })
+            const phone = clean(r.sender)
+            const statusBadge = r.is_sent 
+              ? '<span class="badge" style="background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3)">✅ Sent</span>'
+              : '<span class="badge" style="background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid rgba(245,158,11,.3)">⏰ Scheduled</span>'
+            return `
+              <tr>
+                <td class="num">
+                  <a href="https://wa.me/${phone}" target="_blank" style="color:var(--white);text-decoration:none;">${formatPhone(r.sender)}</a>
+                </td>
+                <td><span class="badge badge-tenant">${r.tenant_id}</span></td>
+                <td><span style="color:var(--white);">${esc(r.task)}</span></td>
+                <td class="dim">${dueStr}</td>
+                <td>${statusBadge}</td>
+              </tr>
+            `
+          }).join('')}
+        </tbody>
+      </table>
+    `
+  } catch(e) {
+    console.error("Failed to load reminders:", e)
+  }
+}
+
+function formatPhone(s) {
+  let c = clean(s)
+  if (c.startsWith('234') && c.length === 13) {
+    return `+234 ${c.slice(3,6)} ${c.slice(6,9)} ${c.slice(9)}`
+  }
+  return '+' + c
 }
 
 async function sendBroadcast() {
@@ -892,11 +1197,15 @@ function loadAll() {
   loadStats()
   loadChart()
   loadLeads()
+  loadUsers()
+  loadReminders()
 }
 
 loadAll()
 setInterval(loadFleet, 15000)
 setInterval(loadStats, 30000)
+setInterval(loadUsers, 20000)
+setInterval(loadReminders, 20000)
 </script>
 </body>
 </html>

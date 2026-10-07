@@ -548,7 +548,7 @@ def is_vip_copilot_user(sender):
 
 def set_user_vip_status(tenant_id, sender, is_vip=1):
     ensure_tenant_user(tenant_id, sender)
-    update_tenant_user(tenant_id, sender, is_vip=is_vip, is_paid=1)
+    update_tenant_user(tenant_id, sender, is_vip=is_vip, is_paid=(1 if is_vip else 0))
 
 
 # ── BACKWARD COMPATIBILITY LAYER (Delegates to tenant_id='main') ──────────────
@@ -620,15 +620,57 @@ def get_stats():
     }
 
 def get_recent_leads(limit=20):
-    return get_tenant_leads("main", limit)
+    return get_all_leads(limit=limit)
+
+def get_all_leads(tenant_id=None, limit=50):
+    conn = _get_conn()
+    if tenant_id and tenant_id != "all":
+        rows = conn.execute(
+            """SELECT id, tenant_id, sender, message, timestamp
+               FROM tenant_leads
+               WHERE tenant_id=?
+               ORDER BY id DESC LIMIT ?""",
+            (tenant_id, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT id, tenant_id, sender, message, timestamp
+               FROM tenant_leads
+               ORDER BY id DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_detailed_users(tenant_id=None, limit=200):
+    conn = _get_conn()
+    if tenant_id and tenant_id != "all":
+        rows = conn.execute(
+            """SELECT tenant_id, sender, name, first_seen, last_msg_date, message_count, daily_count, is_paid, is_vip, onboarded 
+               FROM tenant_users 
+               WHERE tenant_id=?
+               ORDER BY is_vip DESC, is_paid DESC, message_count DESC, first_seen DESC LIMIT ?""",
+            (tenant_id, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT tenant_id, sender, name, first_seen, last_msg_date, message_count, daily_count, is_paid, is_vip, onboarded 
+               FROM tenant_users 
+               ORDER BY is_vip DESC, is_paid DESC, message_count DESC, first_seen DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 def get_recent_users(limit=20):
+    return get_detailed_users(limit=limit)
+
+def get_all_reminders(limit=50):
     conn = _get_conn()
     rows = conn.execute(
-        """SELECT sender, name, first_seen, message_count, daily_count, is_paid 
-           FROM tenant_users 
-           WHERE tenant_id='main'
-           ORDER BY first_seen DESC LIMIT ?""",
+        """SELECT id, tenant_id, sender, task, remind_time, created_at, is_sent
+           FROM tenant_reminders
+           ORDER BY id DESC LIMIT ?""",
         (limit,)
     ).fetchall()
     conn.close()
