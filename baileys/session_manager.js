@@ -223,41 +223,28 @@ class SessionManager {
                 const chatId = msg.key.remoteJid
                 if (!chatId) continue
 
-                // ── 1. Human Activity & Takeover Commands (Sent from Charles's phone) ──
+                // ── 1. Human Activity & Takeover Commands (Sent from phone) ──────────
                 if (msg.key.fromMe) {
                     const text = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || '').trim().toLowerCase()
                     if (text === '!ai resume' || text === '!resume') {
                         this.clearHumanTakeover(tenantId, chatId)
                     } else if (text === '!ai pause' || text === '!pause') {
                         this.recordHumanActivity(tenantId, chatId, 24 * 60 * 60 * 1000) // 24hr mute
-                    } else {
-                        // Charles is actively speaking with this customer:
-                        // Quiet the AI for 30 minutes so Charles can talk uninterrupted!
-                        this.recordHumanActivity(tenantId, chatId, 30 * 60 * 1000)
                     }
                     continue
                 }
 
-                // ── 2. Strictly 1-on-1 Direct Messages Only (@s.whatsapp.net) ──────────
-                // ZERO INTERFERENCE IN GROUPS & BROADCASTS:
-                // Completely drops:
-                // - All Group chats (@g.us)
-                // - All Community member / hidden identity chats (@lid)
-                // - All Status broadcasts (@broadcast, status@...)
-                // - All Newsletters / Channels (@newsletter)
-                // - Any message with participant or msg.key.participant populated (group indicator)
-                // - Any chat where remoteJid does not cleanly end with @s.whatsapp.net
+                // ── 2. Strictly 1-on-1 Direct Messages Only ───────────────────────────
+                // HARD BLOCK on groups, channels, and broadcasts:
+                // - Drops all groups: remoteJid ends with @g.us OR participant / msg.key.participant populated
+                // - Drops all broadcasts: status@broadcast or ends with @broadcast
+                // - Drops all channels / newsletters: ends with or contains @newsletter
+                // Allows 1-on-1 private DMs (both @s.whatsapp.net and @lid)
                 const rawJid = (chatId || '').toLowerCase()
-                const isGroupOrBroadcast = rawJid.includes('@g.us') ||
-                                           rawJid.includes('@lid') ||
-                                           rawJid.includes('@broadcast') ||
-                                           rawJid.includes('@newsletter') ||
-                                           !rawJid.endsWith('@s.whatsapp.net') ||
-                                           !!msg.key?.participant ||
-                                           !!msg.participant
+                const isGroup = rawJid.endsWith('@g.us') || !!msg.key?.participant || !!msg.participant
+                const isBroadcast = rawJid.includes('@broadcast') || rawJid.includes('@newsletter') || rawJid === 'status@broadcast'
 
-                if (isGroupOrBroadcast) {
-                    // Silently drop - Business and assistant bots NEVER touch group chats!
+                if (isGroup || isBroadcast) {
                     continue
                 }
 
@@ -276,31 +263,28 @@ class SessionManager {
                     sender = parts[0].split(':')[0] + '@' + parts[1]
                 }
 
-                const canonicalId = chatId.split(':')[0].split('@')[0] + '@s.whatsapp.net'
+                const canonicalId = sender
                 const cleanDigits = canonicalId.split('@')[0].replace(/\D/g, '')
 
-                // ── 4. Cross-Bot Loop Guard (Never reply to ANY bot in the fleet) ──────
-                const FLEET_NUMBERS = [
-                    '2348163958919', // Joseph / MAX Central line
-                    '2347017284810', // Campos
-                    '2348108395401', // Portal Consult
-                    '2349068942140'  // Princess / Eby Beauty
-                ]
-                for (const s of this.sessions.values()) {
-                    if (s.phone && !FLEET_NUMBERS.includes(s.phone)) {
-                        FLEET_NUMBERS.push(s.phone)
-                    }
+                // ── 4. Self & Bot Loop Guards ─────────────────────────────────────────
+                // Never reply to messages sent by this bot's OWN phone number
+                const botPhone = sessionState.phone ? sessionState.phone.replace(/\D/g, '') : null
+                if (botPhone && cleanDigits === botPhone) {
+                    console.log(`[SELF GUARD] [${tenantId}] Dropping message from bot's own number: ${cleanDigits}`)
+                    continue
                 }
 
-                if (FLEET_NUMBERS.includes(cleanDigits)) {
-                    console.log(`[LOOP GUARD] [${tenantId}] Dropping message from fleet number: ${cleanDigits}`)
+                // Central MAX should not reply to client storefront bots
+                const CLIENT_BOT_NUMBERS = ['2347017284810', '2348108395401', '2349068942140']
+                if (tenantId === 'main' && CLIENT_BOT_NUMBERS.includes(cleanDigits)) {
+                    console.log(`[LOOP GUARD] MAX dropping message from client bot: ${cleanDigits}`)
                     continue
                 }
 
                 // ── 5. Rapid-Fire / Anti-Spam Breaker per chat ────────────────────────
                 const now = Date.now()
                 const recentTimes = (this.chatRateLimits.get(canonicalId) || []).filter(t => now - t < 15000)
-                if (recentTimes.length >= 3) {
+                if (recentTimes.length >= 5) {
                     console.warn(`[SPAM BREAKER] [${tenantId}] Rapid messages from ${canonicalId}. Cooldown 5 mins.`)
                     this.recordHumanActivity(tenantId, chatId, 5 * 60 * 1000)
                     continue

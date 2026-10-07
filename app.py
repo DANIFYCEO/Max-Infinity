@@ -940,9 +940,9 @@ def message():
         print(f"[MESSAGE] [{tenant_id}] type={msg_type} from={sender} text={text[:60]}")
 
         # ── 1. Strictly validate 1-on-1 private DM sender
-        # Discard any groups (@g.us), community member chats (@lid), newsletters, or broadcasts
+        # Discard any groups (@g.us), channels (@newsletter), or status broadcasts
         raw_sender = (sender or "").lower()
-        if not raw_sender.endswith("@s.whatsapp.net") or any(x in raw_sender for x in ["@g.us", "@lid", "@broadcast", "@newsletter", "status@"]):
+        if any(x in raw_sender for x in ["@g.us", "@broadcast", "@newsletter", "status@"]):
             print(f"[REJECT NON-DM] [{tenant_id}] Dropping group/broadcast message from {sender}")
             return jsonify({"reply": ""})
 
@@ -963,11 +963,16 @@ def message():
             print(f"[LOOP GUARD] [{tenant_id}] Ignoring system alert message from {sender}: {text[:50]}")
             return jsonify({"reply": ""})
 
-        # ── 3. Fleet Phone Guard: Never process messages sent by any registered bot number
-        FLEET_NUMBERS = ["2348163958919", "2347017284810", "2348108395401", "2349068942140"]
+        # ── 3. Self-Loop Guard: Never process messages sent by this bot's own phone
         sender_digits = re.sub(r'[^0-9]', '', sender.split('@')[0])
-        if sender_digits in FLEET_NUMBERS:
-            print(f"[FLEET LOOP GUARD] [{tenant_id}] Dropping message from registered bot number: {sender_digits}")
+        cfg = get_tenant(tenant_id)
+        if cfg and cfg.get("bot_phone") and sender_digits == cfg.get("bot_phone"):
+            print(f"[SELF LOOP GUARD] [{tenant_id}] Dropping message from bot's own phone: {sender_digits}")
+            return jsonify({"reply": ""})
+
+        CLIENT_BOT_NUMBERS = ["2347017284810", "2348108395401", "2349068942140"]
+        if tenant_id == "main" and sender_digits in CLIENT_BOT_NUMBERS:
+            print(f"[FLEET LOOP GUARD] MAX dropping message from client bot: {sender_digits}")
             return jsonify({"reply": ""})
 
         # ── MULTI-TENANT CLIENT BRANCH (Campos, Portal Consult, etc.) ─────────
