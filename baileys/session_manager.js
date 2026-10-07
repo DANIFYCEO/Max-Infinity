@@ -41,6 +41,7 @@ class SessionManager {
     constructor() {
         this.sessions = new Map() // tenantId -> { sock, status, qr, pairingCode, phone, reconnectAttempts, manualStop }
         this.humanTakeover = new Map() // key: `${tenantId}:${chatId}` -> timestamp
+        this.chatRateLimits = new Map() // key: canonicalId -> array of timestamps
     }
 
     recordHumanActivity(tenantId, chatId, durationMs = 30 * 60 * 1000) {
@@ -237,13 +238,26 @@ class SessionManager {
                     continue
                 }
 
-                // ── 2. Ignore Group Chats & Status Broadcasts ──────────────────────────
-                const isGroup = chatId.endsWith('@g.us')
-                if (isGroup) {
-                    // Business bots NEVER interfere in group chats
-                    continue
-                }
-                if (chatId === 'status@broadcast' || chatId === 'status@s.whatsapp.net' || chatId.endsWith('@broadcast')) {
+                // ── 2. Strictly 1-on-1 Direct Messages Only (@s.whatsapp.net) ──────────
+                // ZERO INTERFERENCE IN GROUPS & BROADCASTS:
+                // Completely drops:
+                // - All Group chats (@g.us)
+                // - All Community member / hidden identity chats (@lid)
+                // - All Status broadcasts (@broadcast, status@...)
+                // - All Newsletters / Channels (@newsletter)
+                // - Any message with participant or msg.key.participant populated (group indicator)
+                // - Any chat where remoteJid does not cleanly end with @s.whatsapp.net
+                const rawJid = (chatId || '').toLowerCase()
+                const isGroupOrBroadcast = rawJid.includes('@g.us') ||
+                                           rawJid.includes('@lid') ||
+                                           rawJid.includes('@broadcast') ||
+                                           rawJid.includes('@newsletter') ||
+                                           !rawJid.endsWith('@s.whatsapp.net') ||
+                                           !!msg.key?.participant ||
+                                           !!msg.participant
+
+                if (isGroupOrBroadcast) {
+                    // Silently drop - Business and assistant bots NEVER touch group chats!
                     continue
                 }
 
@@ -263,6 +277,36 @@ class SessionManager {
                 }
 
                 const canonicalId = chatId.split(':')[0].split('@')[0] + '@s.whatsapp.net'
+                const cleanDigits = canonicalId.split('@')[0].replace(/\D/g, '')
+
+                // ── 4. Cross-Bot Loop Guard (Never reply to ANY bot in the fleet) ──────
+                const FLEET_NUMBERS = [
+                    '2348163958919', // Joseph / MAX Central line
+                    '2347017284810', // Campos
+                    '2348108395401', // Portal Consult
+                    '2349068942140'  // Princess / Eby Beauty
+                ]
+                for (const s of this.sessions.values()) {
+                    if (s.phone && !FLEET_NUMBERS.includes(s.phone)) {
+                        FLEET_NUMBERS.push(s.phone)
+                    }
+                }
+
+                if (FLEET_NUMBERS.includes(cleanDigits)) {
+                    console.log(`[LOOP GUARD] [${tenantId}] Dropping message from fleet number: ${cleanDigits}`)
+                    continue
+                }
+
+                // ── 5. Rapid-Fire / Anti-Spam Breaker per chat ────────────────────────
+                const now = Date.now()
+                const recentTimes = (this.chatRateLimits.get(canonicalId) || []).filter(t => now - t < 15000)
+                if (recentTimes.length >= 3) {
+                    console.warn(`[SPAM BREAKER] [${tenantId}] Rapid messages from ${canonicalId}. Cooldown 5 mins.`)
+                    this.recordHumanActivity(tenantId, chatId, 5 * 60 * 1000)
+                    continue
+                }
+                recentTimes.push(now)
+                this.chatRateLimits.set(canonicalId, recentTimes)
 
                 console.log(`[MSG] [${tenantId}] chatId=${chatId} sender=${sender}`)
 

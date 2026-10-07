@@ -939,6 +939,37 @@ def message():
 
         print(f"[MESSAGE] [{tenant_id}] type={msg_type} from={sender} text={text[:60]}")
 
+        # ── 1. Strictly validate 1-on-1 private DM sender
+        # Discard any groups (@g.us), community member chats (@lid), newsletters, or broadcasts
+        raw_sender = (sender or "").lower()
+        if not raw_sender.endswith("@s.whatsapp.net") or any(x in raw_sender for x in ["@g.us", "@lid", "@broadcast", "@newsletter", "status@"]):
+            print(f"[REJECT NON-DM] [{tenant_id}] Dropping group/broadcast message from {sender}")
+            return jsonify({"reply": ""})
+
+        # ── 2. Loop Guard: Never process our own automated alerts / templates
+        SYSTEM_ALERT_MARKERS = [
+            "TALK TO EBY REQUEST",
+            "NEW ORDER LOGGED",
+            "PAYMENT PROOF UPLOADED",
+            "Connecting you with Eby",
+            "New MAX∞ user",
+            "HIRE lead phone received",
+            "Order Reference:",
+            "Built by FABER",
+            "I'm MAX — your AI assistant",
+            "Welcome to Eby's Skincare"
+        ]
+        if any(marker in text for marker in SYSTEM_ALERT_MARKERS):
+            print(f"[LOOP GUARD] [{tenant_id}] Ignoring system alert message from {sender}: {text[:50]}")
+            return jsonify({"reply": ""})
+
+        # ── 3. Fleet Phone Guard: Never process messages sent by any registered bot number
+        FLEET_NUMBERS = ["2348163958919", "2347017284810", "2348108395401", "2349068942140"]
+        sender_digits = re.sub(r'[^0-9]', '', sender.split('@')[0])
+        if sender_digits in FLEET_NUMBERS:
+            print(f"[FLEET LOOP GUARD] [{tenant_id}] Dropping message from registered bot number: {sender_digits}")
+            return jsonify({"reply": ""})
+
         # ── MULTI-TENANT CLIENT BRANCH (Campos, Portal Consult, etc.) ─────────
         if tenant_id != "main":
             user, is_new = tick_tenant_message(tenant_id, sender)
@@ -969,23 +1000,6 @@ def message():
                 pending_order = next((o for o in cust_orders if o["status"] in ("Order received", "Processing")), None)
                 if pending_order:
                     mark_tenant_order_payment_proof(pending_order["order_code"])
-                    cfg = get_tenant(tenant_id)
-                    owner_phone = cfg.get("owner_phone") if cfg else "2349068942140"
-                    clean_target = re.sub(r'[^0-9]', '', owner_phone)
-                    clean_sender = re.sub(r'[^0-9]', '', sender)
-                    receipt_alert = (
-                        f"🧾 *PAYMENT PROOF UPLOADED!*\n\n"
-                        f"• *Customer:* {name or 'Customer'}\n"
-                        f"• *Phone:* {sender}\n"
-                        f"• *Order Code:* #{pending_order['order_code']}\n"
-                        f"• *Total Amount:* ₦{pending_order['total_amount']:,}\n\n"
-                        f"👉 Check chat to verify receipt: wa.me/{clean_sender}"
-                    )
-                    try:
-                        requests.post(f"{BAILEYS_URL}/send", json={"to": f"{clean_target}@s.whatsapp.net", "message": receipt_alert}, timeout=10)
-                    except Exception as ex_receipt:
-                        print(f"[RECEIPT NOTIFY ERROR] {ex_receipt}")
-
                     return jsonify({
                         "reply": f"🧾 *Payment Proof Received!*\n\nThank you so much! Princess (Eby) has been notified to verify your payment for order *#{pending_order['order_code']}*. Once confirmed, your order status will be updated to *Payment confirmed*. ✨"
                     })
@@ -1031,27 +1045,6 @@ def message():
 
                             if order_code not in reply:
                                 reply += f"\n\n🧾 *Order Reference:* #{order_code}"
-
-                            # Notify owner (Princess at 2349068942140)
-                            cfg = get_tenant(tenant_id)
-                            owner_phone = cfg.get("owner_phone") if cfg else "2349068942140"
-                            if owner_phone:
-                                clean_target = re.sub(r'[^0-9]', '', owner_phone)
-                                clean_sender = re.sub(r'[^0-9]', '', sender)
-                                owner_alert = (
-                                    f"🛍️ *NEW ORDER LOGGED (#{order_code})*\n\n"
-                                    f"• *Customer:* {cust_name}\n"
-                                    f"• *Phone:* {sender}\n"
-                                    f"• *Items:* {items_sum}\n"
-                                    f"• *Total:* ₦{tot_amt:,}\n"
-                                    f"• *Delivery:* {loc}\n"
-                                    f"• *Type:* {otype.upper()}\n\n"
-                                    f"👉 Chat with customer: wa.me/{clean_sender}"
-                                )
-                                try:
-                                    requests.post(f"{BAILEYS_URL}/send", json={"to": f"{clean_target}@s.whatsapp.net", "message": owner_alert}, timeout=10)
-                                except Exception as ex_alert:
-                                    print(f"[ORDER OWNER NOTIFY ERROR] {ex_alert}")
                             break
                 except Exception as e_order:
                     print(f"[ORDER CREATION ERROR] {e_order}")
@@ -1059,19 +1052,6 @@ def message():
             # ── Check TALK_TO_EBY / Human Handover trigger
             if "TALK_TO_EBY:" in reply or (tenant_id == "eby_beauty" and any(k in text.lower() for k in ["talk to eby", "speak to eby", "speak with eby", "talk to princess", "speak to princess"])):
                 reply = re.sub(r'TALK_TO_EBY:[^\n]*', '', reply).strip()
-                clean_target = "2349068942140"
-                clean_sender = re.sub(r'[^0-9]', '', sender)
-                handover_alert = (
-                    f"👩‍💼 *TALK TO EBY REQUEST*\n\n"
-                    f"• *Customer:* {name or 'Customer'}\n"
-                    f"• *Phone:* {sender}\n"
-                    f"• *Customer Message:* {text}\n\n"
-                    f"👉 Reply to customer: wa.me/{clean_sender}"
-                )
-                try:
-                    requests.post(f"{BAILEYS_URL}/send", json={"to": f"{clean_target}@s.whatsapp.net", "message": handover_alert}, timeout=10)
-                except Exception as ex_handover:
-                    print(f"[HANDOVER NOTIFY ERROR] {ex_handover}")
 
             # Check reminder trigger
             if reply.strip().startswith("SET_REMINDER:"):
@@ -1711,7 +1691,7 @@ def admin_update():
 
     def reload_process():
         time.sleep(2)
-        subprocess.run("pm2 restart max-flask || pm2 reload all || true", shell=True)
+        subprocess.run("pm2 restart all || true", shell=True)
 
     try:
         res = subprocess.run(
@@ -1738,7 +1718,7 @@ def admin_logs():
     import subprocess
     try:
         lines_count = request.args.get("lines", "60")
-        out = subprocess.run(f"pm2 logs max-flask --lines {lines_count} --nostream", shell=True, capture_output=True, text=True, timeout=10)
+        out = subprocess.run(f"pm2 logs --lines {lines_count} --nostream", shell=True, capture_output=True, text=True, timeout=10)
         return f"<pre style='background:#111;color:#0f0;padding:15px;font-family:monospace;'>{out.stdout}\n{out.stderr}</pre>", 200
     except Exception as ex:
         return f"Error reading logs: {ex}", 500
