@@ -329,8 +329,10 @@ class SessionManager {
                     }
 
                     // Forward to Flask Multi-Tenant message processor
+                    console.log(`[FORWARD TO FLASK] [${tenantId}] type=${payload.type} text="${payload.text}" sender=${payload.sender}`)
                     const res = await axios.post(FLASK_URL, payload, { timeout: 120000 })
                     const result = res.data
+                    console.log(`[FLASK RETURNED] [${tenantId}] reply="${(result?.reply || '').slice(0, 50)}..."`)
 
                     if (result && (result.handover || result.pause_ai)) {
                         const pauseMs = result.pause_ai || (2 * 60 * 60 * 1000)
@@ -395,7 +397,9 @@ class SessionManager {
         if (result.reply) {
             const chunks = splitMessage(result.reply)
             for (const chunk of chunks) {
+                console.log(`[DISPATCH SEND] [${tenantId}] sending chunk to ${chatId}: "${chunk.slice(0, 40)}..."`)
                 await sock.sendMessage(chatId, { text: chunk })
+                console.log(`[DISPATCH OK] [${tenantId}] delivered to ${chatId}`)
             }
         }
     }

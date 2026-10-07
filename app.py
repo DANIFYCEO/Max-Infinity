@@ -1739,8 +1739,11 @@ def admin_logs():
         return "Unauthorized", 401
     import subprocess
     try:
-        lines_count = request.args.get("lines", "60")
-        out = subprocess.run(f"pm2 logs --lines {lines_count} --nostream", shell=True, capture_output=True, text=True, timeout=10)
+        lines_count = request.args.get("lines", "50")
+        out = subprocess.run(
+            f"tail -n {lines_count} /home/faber2026/.pm2/logs/max-baileys-error.log /home/faber2026/.pm2/logs/max-baileys-out.log /home/faber2026/.pm2/logs/max-flask-out.log /home/faber2026/.pm2/logs/max-flask-error.log 2>&1",
+            shell=True, capture_output=True, text=True, timeout=5
+        )
         return f"<pre style='background:#111;color:#0f0;padding:15px;font-family:monospace;'>{out.stdout}\n{out.stderr}</pre>", 200
     except Exception as ex:
         return f"Error reading logs: {ex}", 500
