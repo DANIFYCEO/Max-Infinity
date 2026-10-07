@@ -698,9 +698,17 @@ def clean_whatsapp_format(text: str) -> str:
 
     text = re.sub(r'^[ \t]*#{1,6}[ \t]+(.*)$', fix_header, text, flags=re.MULTILINE)
 
-    # 4. Convert double/triple asterisks to single asterisks (WhatsApp bold)
-    text = re.sub(r'\*\*\*([^\*]+)\*\*\*', r'*_\1_*', text)
-    text = re.sub(r'\*\*([^\*]+)\*\*', r'*\1*', text)
+    # 4. Convert quotes inside asterisks/underscores to clean bold
+    text = re.sub(r'[\*\_]+[\"\']([^\"\'\*\_]+)[\"\'][\*\_]+', r'*\1*', text)
+
+    # Convert any 2 or more asterisks (**, ***) to single asterisk (WhatsApp bold)
+    text = re.sub(r'\*{2,}\s*([^\*\n]+?)\s*\*{2,}', r'*\1*', text)
+
+    # Clean single asterisks with inner spaces so WhatsApp renders bold
+    text = re.sub(r'(\s|^)\*\s*([^\*\n]+?)\s*\*(\s|$|[.,!?:;])', r'\1*\2*\3', text)
+
+    # Completely remove any orphan double asterisks
+    text = text.replace('**', '')
 
     # 5. Convert list bullet asterisks/hyphens at line starts to clean bullet '• '
     text = re.sub(r'^[ \t]*[\-][ \t]+', r'• ', text, flags=re.MULTILINE)
