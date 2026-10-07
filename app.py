@@ -1238,7 +1238,9 @@ def message():
 
     except Exception as e:
         print(f"[MESSAGE ERROR] {e}")
-        return jsonify({"reply": "Something went wrong on my end. Try again."})
+        import traceback
+        traceback.print_exc()
+        return jsonify({"reply": "Something went wrong on my end. Try again.", "error": str(e)})
 
 
 # ── LIVE VOICE CALL ROUTES ────────────────────────────────────────────────────
@@ -1539,6 +1541,19 @@ def admin_update():
         }), 200
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/admin/logs")
+def admin_logs():
+    if not admin_auth():
+        return "Unauthorized", 401
+    import subprocess
+    try:
+        lines_count = request.args.get("lines", "60")
+        out = subprocess.run(f"pm2 logs max-flask --lines {lines_count} --nostream", shell=True, capture_output=True, text=True, timeout=10)
+        return f"<pre style='background:#111;color:#0f0;padding:15px;font-family:monospace;'>{out.stdout}\n{out.stderr}</pre>", 200
+    except Exception as ex:
+        return f"Error reading logs: {ex}", 500
 
 
 # ── HEALTH CHECK ─────────────────────────────────────────────────────────────
