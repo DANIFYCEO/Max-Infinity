@@ -136,7 +136,7 @@ def reminder_worker():
                 r_id = r["id"]
                 print(f"[REMINDER DUE] Sending reminder #{r_id} to {sender}")
                 requests.post(
-                    f"{BAILEYS_URL}/send",
+                    f"{BAILEYS_URL}/sessions/main/send",
                     json={"to": sender, "message": f"⏰ *REMINDER:*\n\n{task}"},
                     timeout=10
                 )
@@ -146,13 +146,15 @@ def reminder_worker():
             tenant_due = get_due_tenant_reminders(now)
             for r in tenant_due:
                 t_id = r["tenant_id"]
+                r_id = r["id"]
+                if t_id == "eby_beauty":
+                    mark_tenant_reminder_sent(r_id)
+                    continue
                 sender = r["sender"]
                 task = r["task"]
-                r_id = r["id"]
                 print(f"[TENANT REMINDER DUE] Tenant {t_id}: reminder #{r_id} to {sender}")
-                send_url = f"{BAILEYS_URL}/sessions/{t_id}/send" if t_id != "main" else f"{BAILEYS_URL}/send"
                 requests.post(
-                    send_url,
+                    f"{BAILEYS_URL}/sessions/{t_id}/send",
                     json={"to": sender, "message": f"⏰ *REMINDER:*\n\n{task}"},
                     timeout=10
                 )
@@ -329,16 +331,8 @@ UPGRADE_MSG = (
 # ── NOTIFY JOSEPH ─────────────────────────────────────────────────────────────
 
 def notify_joseph(message: str):
-    """Send a WhatsApp message to Joseph via the Baileys bridge."""
-    try:
-        requests.post(
-            f"{BAILEYS_URL}/send",
-            json={"to": JOSEPH_NUMBER, "message": message},
-            timeout=10
-        )
-        print(f"[NOTIFY] Joseph notified")
-    except Exception as e:
-        print(f"[NOTIFY ERROR] {e}")
+    """Log admin alerts to console/database only. Never send automated WhatsApp messages to prevent any cross-account leaks or spam."""
+    print(f"[ADMIN NOTIFICATION] {message}")
 
 # ── FILE UTILS ────────────────────────────────────────────────────────────────
 
@@ -1161,7 +1155,7 @@ def message():
                     if len(clean_num) >= 10:
                         target_jid = f"{clean_num}@s.whatsapp.net"
                         forward_text = f"📩 *Message from Daniel:*\n\n{msg_body}"
-                        requests.post(f"{BAILEYS_URL}/send", json={"to": target_jid, "message": forward_text}, timeout=10)
+                        requests.post(f"{BAILEYS_URL}/sessions/main/send", json={"to": target_jid, "message": forward_text}, timeout=10)
                         return jsonify({"reply": f"✅ Delivered message to {raw_recip}!"})
                 except Exception as e:
                     print(f"[VIP PROXY ERROR] {e}")
@@ -1171,7 +1165,6 @@ def message():
         # ── Normal MAX user onboarding
         if is_new or not user.get("onboarded"):
             update_user(sender, onboarded=1)
-            notify_joseph(f"👤 *New MAX∞ user!*\nName: {name or 'Unknown'}\nID: {sender}")
             return jsonify({"reply": ONBOARDING_MSG.format(limit=FREE_DAILY_LIMIT)})
 
         # ── HELP command
@@ -1366,7 +1359,7 @@ def message():
                     forward_text = f"📩 *Message from {sender_label}:*\n\n{msg_body}\n\n_Sent via MAX∞_"
 
                     requests.post(
-                        f"{BAILEYS_URL}/send",
+                        f"{BAILEYS_URL}/sessions/main/send",
                         json={"to": target_jid, "message": forward_text},
                         timeout=10
                     )
@@ -1576,7 +1569,7 @@ def admin_broadcast():
     for sender in senders:
         try:
             requests.post(
-                f"{BAILEYS_URL}/send",
+                f"{BAILEYS_URL}/sessions/main/send",
                 json={"to": sender, "message": message},
                 timeout=5
             )

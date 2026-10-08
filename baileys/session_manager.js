@@ -411,19 +411,23 @@ class SessionManager {
     }
 
     async sendToRecipient(tenantId, to, options) {
-        let session = this.sessions.get(tenantId)
-        if (!session && tenantId === 'default') {
-            // Pick first connected session
-            for (const s of this.sessions.values()) {
-                if (s.status === 'connected') {
-                    session = s
-                    break
-                }
-            }
+        // Enforce STRICT tenant isolation:
+        // 'default' or omitted tenant MUST strictly resolve to 'main' (MAX Central).
+        // Under NO circumstances should ANY client session (campos, portal_consult, eby_beauty)
+        // ever be used as a fallback for generic/unspecified outgoing messages!
+        const targetTenant = (!tenantId || tenantId === 'default') ? 'main' : tenantId
+        const session = this.sessions.get(targetTenant)
+
+        if (!session || !session.sock || session.status !== 'connected') {
+            throw new Error(`Session for tenant '${targetTenant}' is not connected`)
         }
 
-        if (!session || !session.sock) {
-            throw new Error(`Session for tenant '${tenantId}' is not connected`)
+        // Fleet isolation guard: MAX Central must NEVER send messages to client bot numbers
+        const CLIENT_BOT_NUMBERS = ['2347017284810', '2348108395401', '2349068942140']
+        const targetDigits = (to || '').split('@')[0].replace(/\D/g, '')
+        if (targetTenant === 'main' && CLIENT_BOT_NUMBERS.includes(targetDigits)) {
+            console.warn(`[FLEET ISOLATION] Blocked MAX from sending to client bot phone: ${targetDigits}`)
+            return { ok: false, error: 'Cannot send to client bot number from central MAX' }
         }
 
         const sock = session.sock

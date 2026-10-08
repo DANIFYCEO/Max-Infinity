@@ -843,11 +843,33 @@ def save_lead(sender, message):
 
 def get_all_senders():
     conn = _get_conn()
+    # Strictly exclude all client bot numbers and client owner phones
+    tenant_rows = conn.execute("SELECT bot_phone, owner_phone FROM tenants WHERE id != 'main'").fetchall()
+    exclude_nums = set(["2347017284810", "2348108395401", "2349068942140", "07017284810", "08108395401", "09068942140"])
+    for tr in tenant_rows:
+        if tr["bot_phone"]:
+            raw_p = tr["bot_phone"].replace('+', '').replace(' ', '').replace('-', '')
+            exclude_nums.add(raw_p)
+            if raw_p.startswith('234') and len(raw_p) == 13:
+                exclude_nums.add('0' + raw_p[3:])
+        if tr["owner_phone"]:
+            raw_o = tr["owner_phone"].replace('+', '').replace(' ', '').replace('-', '')
+            exclude_nums.add(raw_o)
+            if raw_o.startswith('234') and len(raw_o) == 13:
+                exclude_nums.add('0' + raw_o[3:])
+
     rows = conn.execute(
         "SELECT sender FROM tenant_users WHERE tenant_id='main' AND sender NOT LIKE '%status%' AND sender NOT LIKE '%broadcast%'"
     ).fetchall()
     conn.close()
-    return [r["sender"] for r in rows]
+
+    clean_senders = []
+    for r in rows:
+        s = r["sender"]
+        digits = re.sub(r'[^0-9]', '', s.split('@')[0])
+        if digits not in exclude_nums:
+            clean_senders.append(s)
+    return clean_senders
 
 def get_stats():
     today = str(date.today())

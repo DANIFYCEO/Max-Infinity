@@ -145,7 +145,7 @@ app.post('/sessions/:tenant_id/send', async (req, res) => {
 // ── Legacy Send Endpoint (Sends using default/main connected session) ────────
 app.post('/send', async (req, res) => {
     const { to, message, type, audio_bytes, image_bytes, sticker_bytes, images, caption, tenant_id } = req.body || {}
-    const targetTenant = tenant_id || 'default'
+    const targetTenant = tenant_id || 'main'
 
     if (!to) {
         return res.status(400).json({ status: 'error', message: 'Recipient "to" is required' })
