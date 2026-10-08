@@ -495,6 +495,7 @@ Feel free to choose a number or type what you're looking for! 💕"""
             "bot_phone": "2349068942140",
             "owner_phone": "2349068942140",
             "tenant_type": "business_bot",
+            "status": "inactive",
             "prompt": EBY_BEAUTY_PROMPT,
             "welcome": EBY_BEAUTY_WELCOME
         }
@@ -502,10 +503,15 @@ Feel free to choose a number or type what you're looking for! 💕"""
 
     conn = _get_conn()
     for t in tenants_to_seed:
+        t_status = t.get("status", "active")
         conn.execute("""
             INSERT OR IGNORE INTO tenants (id, name, bot_phone, owner_phone, tenant_type, status, plan, created_at)
-            VALUES (?, ?, ?, ?, ?, 'active', 'standard', ?)
-        """, (t["id"], t["name"], t["bot_phone"], t["owner_phone"], t["tenant_type"], now))
+            VALUES (?, ?, ?, ?, ?, ?, 'standard', ?)
+        """, (t["id"], t["name"], t["bot_phone"], t["owner_phone"], t["tenant_type"], t_status, now))
+
+        # Explicitly ensure eby_beauty is set to inactive
+        if t["id"] == "eby_beauty":
+            conn.execute("UPDATE tenants SET status = 'inactive' WHERE id = 'eby_beauty'")
 
         conn.execute("""
             INSERT OR REPLACE INTO tenant_configs (tenant_id, system_prompt, welcome_message)

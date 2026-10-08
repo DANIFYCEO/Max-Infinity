@@ -4,7 +4,7 @@ module.exports = {
       name: 'max-flask',
       cwd: './',
       script: 'venv/bin/gunicorn',
-      args: 'app:app --bind 0.0.0.0:5000 --workers 1 --timeout 120',
+      args: 'app:app --bind 0.0.0.0:5000 --workers 2 --threads 4 --timeout 120',
       interpreter: 'none',
       env: {
         FLASK_ENV: 'production',

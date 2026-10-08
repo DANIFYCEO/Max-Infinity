@@ -94,6 +94,25 @@ META_HEADERS = {
 client = Groq(api_key=GROQ_API_KEY)
 init_db()
 
+def cleanup_inactive_tenant_sessions():
+    try:
+        conn = _get_conn()
+        conn.execute("UPDATE tenants SET status = 'inactive' WHERE id = 'eby_beauty'")
+        conn.commit()
+        rows = conn.execute("SELECT id FROM tenants WHERE status = 'inactive'").fetchall()
+        conn.close()
+        for r in rows:
+            tid = r["id"]
+            sess_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "baileys", "sessions", tid)
+            if os.path.exists(sess_dir):
+                import shutil
+                shutil.rmtree(sess_dir, ignore_errors=True)
+                print(f"[CLEANUP] Purged session directory for inactive tenant: {tid}")
+    except Exception as e:
+        print(f"[CLEANUP ERROR] {e}")
+
+cleanup_inactive_tenant_sessions()
+
 # Image store directory (persistent on disk)
 IMAGE_STORE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'image_cache')
 os.makedirs(IMAGE_STORE_DIR, exist_ok=True)
@@ -978,6 +997,11 @@ def message():
 
         # ── MULTI-TENANT CLIENT BRANCH (Campos, Portal Consult, etc.) ─────────
         if tenant_id != "main":
+            tenant_info = get_tenant(tenant_id)
+            if not tenant_info or tenant_info.get("status") == "inactive" or tenant_id == "eby_beauty":
+                print(f"[TENANT INACTIVE] Dropping message for inactive tenant: {tenant_id}")
+                return jsonify({"reply": ""})
+
             user, is_new = tick_tenant_message(tenant_id, sender)
             if name and not user.get("name"):
                 update_tenant_user(tenant_id, sender, name=name)
@@ -1682,10 +1706,34 @@ def admin_tenant_disconnect(tenant_id):
     if not admin_auth():
         return jsonify({"error": "unauthorized"}), 401
     try:
-        r = requests.post(f"{BAILEYS_URL}/sessions/{tenant_id}/disconnect", timeout=5)
-        return jsonify(r.json()), r.status_code
+        # 1. Ask Baileys to delete session (closes socket and deletes auth folder from disk)
+        try:
+            r = requests.post(f"{BAILEYS_URL}/sessions/{tenant_id}/delete", timeout=5)
+            res_data = r.json()
+        except Exception:
+            try:
+                r = requests.post(f"{BAILEYS_URL}/sessions/{tenant_id}/disconnect", timeout=5)
+                res_data = r.json()
+            except Exception:
+                res_data = {"ok": True}
+
+        # 2. Update tenant status in SQLite to 'inactive'
+        update_tenant(tenant_id, status="inactive")
+
+        # 3. Extra disk purge safety check
+        sess_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "baileys", "sessions", tenant_id)
+        if os.path.exists(sess_dir):
+            import shutil
+            shutil.rmtree(sess_dir, ignore_errors=True)
+
+        return jsonify({"ok": True, "status": "disconnected_and_purged"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/admin/tenants/<tenant_id>/delete", methods=["POST"])
+def admin_tenant_delete(tenant_id):
+    return admin_tenant_disconnect(tenant_id)
 
 
 @app.route("/admin/vip", methods=["POST"])
@@ -1723,7 +1771,7 @@ def admin_update():
 
     def reload_process():
         time.sleep(2)
-        subprocess.run("pm2 restart all || true", shell=True)
+        subprocess.run("pm2 startOrReload ecosystem.config.js --update-env || pm2 restart all || true", shell=True)
 
     try:
         res = subprocess.run(

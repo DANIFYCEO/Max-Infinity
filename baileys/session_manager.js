@@ -98,6 +98,11 @@ class SessionManager {
     async initSession(tenantId, options = {}) {
         const { phoneNumber = null, forcePairingCode = false } = options
 
+        if (tenantId === 'eby_beauty') {
+            console.log(`[SESSION] Tenant eby_beauty is disconnected. Skipping initialization.`)
+            return null
+        }
+
         if (this.sessions.has(tenantId)) {
             const current = this.sessions.get(tenantId)
             if (current.status === 'connected') {
@@ -217,6 +222,7 @@ class SessionManager {
 
         // Messages handler
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
+            if (tenantId === 'eby_beauty') return
             if (type !== 'notify') return
 
             for (const msg of messages) {
@@ -486,10 +492,22 @@ class SessionManager {
         console.log('[SESSION MGR] Scanning for existing tenant sessions...')
         if (!fs.existsSync(SESSIONS_DIR)) return
 
+        // Permanently purge eby_beauty directory if it exists
+        const ebyDir = path.join(SESSIONS_DIR, 'eby_beauty')
+        if (fs.existsSync(ebyDir)) {
+            try {
+                fs.rmSync(ebyDir, { recursive: true, force: true })
+                console.log('[SESSION MGR] Purged eby_beauty session files from disk.')
+            } catch (e) {
+                console.error('[PURGE ERROR]', e.message)
+            }
+        }
+
         const entries = fs.readdirSync(SESSIONS_DIR, { withFileTypes: true })
         for (const entry of entries) {
             if (entry.isDirectory()) {
                 const tenantId = entry.name
+                if (tenantId === 'eby_beauty') continue
                 const credsFile = path.join(SESSIONS_DIR, tenantId, 'auth_info', 'creds.json')
                 if (fs.existsSync(credsFile)) {
                     console.log(`[SESSION MGR] Auto-restoring saved session for tenant: ${tenantId}`)
